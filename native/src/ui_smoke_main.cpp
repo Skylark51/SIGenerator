@@ -30,6 +30,7 @@
 #include <QLabel>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QDir>
 #include "DocxWriter.hpp"
@@ -268,6 +269,56 @@ struct Phase1Smoke {
     for(int i=0;i<(librarySize+2)/3;++i)next->click();ok&=check(!next->isEnabled()&&cards->count()==(librarySize-1)%3+1,"last project page disables next button");
     previous->click();ok&=check(next->isEnabled(),"previous page restores next navigation");
     prefs.setValue("recentProjects",originalRecent);prefs.remove("pinnedProjects");prefs.remove("favoriteProjects");prefs.remove("projectManagerTheme");
+    return ok;
+  }
+  static bool portableProject(const QString& fixture){
+    MainWindow source;QTemporaryDir temp;bool ok=true;
+    const auto primary=temp.filePath("1-H2O-freq.log");
+    const auto singlePoint=temp.filePath("1-H2O-freq-bb.log");
+    ok&=check(QFile::copy(fixture,primary),"portable project input fixture copied");
+    QFile spe(singlePoint);
+    if(!spe.open(QIODevice::WriteOnly))return false;
+    spe.write("#p b3lyp/def2tzvpp sp\n Charge = 0 Multiplicity = 1\n"
+              " SCF Done: E(RB3LYP) = -76.500000 A.U.\n Normal termination of Gaussian 16\n");
+    spe.close();
+    source.parsePaths({primary},false,false);
+    if(!waitForImport(source))return false;
+    source.files_->item(0,0)->setText("H2O reference");
+    source.includeAbsolute_->setChecked(true);
+    source.siOutputPath_->setText(temp.filePath("removed-folder/water.docx"));
+    source.xyzOutputPath_->setText(temp.filePath("removed-folder/water.xyz"));
+    source.reactionStages_={QJsonObject{{"name","Water"},{"files",QJsonArray{primary}},
+                                         {"reference",primary}}};
+    const auto project=temp.filePath("portable.si_project.json");
+    ok&=check(source.saveProjectToPath(project),"portable project saved");
+    ProjectState stored;QString error;
+    const bool saved=ProjectStore::load(project,&stored,&error);
+    const auto linkedSpe=stored.pairedSnapshotPaths.value(primary).toString();
+    ok&=check(saved&&stored.gaussianSnapshots.contains(primary)&&
+      QFileInfo(linkedSpe).absoluteFilePath()==QFileInfo(singlePoint).absoluteFilePath()&&
+      stored.gaussianSnapshots.contains(linkedSpe),
+      "both frequency and SPE are embedded");
+    ok&=check(QFile::remove(primary)&&QFile::remove(singlePoint),"original Gaussian files removed");
+    MainWindow reopened;
+    ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"offline project reopens");
+    ok&=check(reopened.siOutputPath_->text()==temp.filePath("water.docx")&&
+      reopened.xyzOutputPath_->text()==temp.filePath("water.xyz"),
+      "moved project redirects missing output directories into project folder");
+    const auto records=reopened.energyRecords();
+    ok&=check(records.size()==1&&records[0].frequency.finalGeometry.size()==3&&
+      records[0].frequency.scfEnergy==std::optional<double>(-76.4)&&
+      records[0].singlePoint&&records[0].singlePoint->scfEnergy==std::optional<double>(-76.5),
+      "offline structure, energy, and paired SPE restored");
+    ok&=check(reopened.structureLabels()==QStringList{"H2O reference"}&&
+      reopened.reactionStages_.size()==1&&
+      reopened.reactionStages_.first().toObject()["reference"].toString()==primary,
+      "offline labels and reaction assignments restored");
+    const auto model=reopened.buildDocumentModel();
+    ok&=check(model.coordinates.size()==1&&model.coordinates[0].atoms.size()==3&&
+      !model.tables.isEmpty(),"offline SI document rebuilt without output files");
+    const auto docx=temp.filePath("offline.docx");
+    ok&=check(DocxWriter::writeDocument(docx,model,&error)&&QFileInfo::exists(docx),
+      "offline project exports DOCX without output files");
     return ok;
   }
   static bool reactionStageWorkflow(const QString& fixture){
@@ -946,6 +997,7 @@ int main(int argc,char** argv){
   window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(0);QCoreApplication::processEvents();ok&=Phase1Smoke::run(window);
   ok&=Phase1Smoke::reactionWorkspace(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::projectManagerWorkflow();
+  ok&=Phase1Smoke::portableProject(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::reactionStageNames(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::reactionStageWorkflow(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::appendFiles(QString::fromLocal8Bit(argv[1]));

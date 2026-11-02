@@ -17,6 +17,7 @@ add_library(si_core STATIC
   src/DocumentModel.cpp
   src/StructureLabels.cpp
   src/ProjectStore.cpp
+  src/GaussianSnapshot.cpp
   src/DocxWriter.cpp
   src/XyzWriter.cpp
 )

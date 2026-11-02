@@ -342,3 +342,38 @@ git push origin v0.2.0
 ```
 
 소스 및 빌드 설정만 Git으로 커밋합니다. `dist/`, `*.exe`, 배포 ZIP은 `.gitignore`에 의해 추적되지 않으며 GitHub Actions Artifacts 또는 Releases로 제공합니다.
+
+
+## 원본 Gaussian 파일 없이 프로젝트 이동·재생성 (프로젝트 v8)
+
+Gaussian `.out`/`.log`를 불러와 해석을 완료한 뒤 **프로젝트 저장(Ctrl+S)** 을 실행하면
+SI 생성에 사용하는 추출값을 `.si_project.json` 안에 압축하여 포함합니다.
+전자에너지, 열역학 보정값, 스핀 밀도, 선택 좌표, 원자 정보, 계산 조건, 허수 진동수 및
+연결된 `-freq-bb` SPE 데이터가 보존됩니다. 원본 Gaussian 출력 텍스트는 포함하지 않습니다.
+
+이후에는 다른 컴퓨터에서 **프로젝트 JSON 파일 하나만 열어도** 구조 목록, 반응 단계,
+에너지·스핀·기하 정보 및 SI 문서 생성을 다시 사용할 수 있습니다. 프로젝트를 열 때
+저장된 스냅샷을 우선 사용하므로 기존 경로에 원본 `.out`이 존재하지 않아도 됩니다.
+구조별 연결 원본 경로는 식별용으로 남지만 데이터를 읽는 데 필요하지 않습니다.
+
+**이전 버전 프로젝트**에는 추출값이 저장되지 않았습니다. 최초 한 번 원본 Gaussian
+파일이 있는 컴퓨터에서 해당 프로젝트를 열어 파일들을 불러온 뒤 새 버전으로 저장해야 합니다.
+이미 원본 파일을 분실한 과거 프로젝트에서는 추출 데이터를 복구할 수 없습니다.
+프로젝트 파일은 실제 데이터가 포함되므로 공유 시 계산 결과의 공개 여부를 확인하세요.
+
+### 기존 설치 경로에서 Windows 실행 파일 업데이트
+
+실행 파일과 Qt DLL은 계속 원래 프로젝트 루트에서 실행합니다. Git으로 추적하지 않는
+`SIGenerator.exe`를 `git pull`로 생성할 수는 없습니다. **GitHub Actions → Windows release build →
+Artifacts → SI-Generator-Windows-x64**의 압축 파일을 다운로드한 뒤 앱을 종료하고 다음을 실행하세요.
+
+```powershell
+cd "D:\이영섭\프로젝트 개발\개발프로젝트\SI_generator_관련\SI_Generator_Project"
+.\native\update-local.ps1 -PackagePath "$env:USERPROFILE\Downloads\SI-Generator-Windows-x64.zip"
+.\SIGenerator.exe
+```
+
+이 스크립트는 일반 배포 ZIP과 GitHub Actions의 중첩 ZIP을 모두 처리하며 EXE·DLL·Qt
+플러그인을 **기존 프로젝트 루트에 덮어씁니다**. 교체 대상이던 파일은
+`backups/runtime-YYYYMMDD-HHMMSS`에 백업합니다. CMake 소스와 사용자 프로젝트 JSON은
+건드리지 않습니다. 이 스크립트는 사용자의 Windows 컴퓨터에서 직접 실행해야 합니다.
