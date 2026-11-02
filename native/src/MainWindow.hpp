@@ -58,6 +58,9 @@ private:
   void refreshScopedPreview();
   void chooseStageScope(int stage);
   void addReactionStage(bool duplicate=false);
+  void renameReactionStage(int index);
+  void removeReactionStage(int index);
+  void pasteStructureTitles(const QString& text);
   void addExistingStageStructures();
   void removeStageStructure();
   void moveStageStructure(int delta);
