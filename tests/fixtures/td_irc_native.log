@@ -1,0 +1,13 @@
+#p b3lyp/def2-svp td irc
+
+ Excited State   1:      Singlet-A      3.1234 eV  397.0 nm  f=0.0123
+ Excited State   2:      Singlet-A      4.5678 eV  271.4 nm  f=0.0456
+ Point Number 1 in FORWARD direction
+ SCF Done:  E(RB3LYP) =  -150.000000     A.U.
+ Point Number 2 in REVERSE direction
+ SCF Done:  E(RB3LYP) =  -149.900000     A.U.
+ Zero-point correction=                           0.123456 (Hartree/Particle)
+ Thermal correction to Energy=                    0.234567
+ Total Entropy 100.000
+ Edisp = -0.010000
+ Normal termination of Gaussian 16

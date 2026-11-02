@@ -1,0 +1,27 @@
+# ninja log v7
+30	2962	8152880040000000	native/CMakeFiles/si_core.dir/src/StructureLabels.cpp.obj	b7059967791a8342
+23	2994	8152880040000000	native/CMakeFiles/si_core.dir/src/SIModel.cpp.obj	f507f1bee193d143
+27	3664	8152880040000000	native/CMakeFiles/si_core.dir/src/DocumentModel.cpp.obj	f65719c553ab8b8c
+3664	6289	8152880080000000	native/CMakeFiles/si_core.dir/src/XyzWriter.cpp.obj	67d17c5eb7f8f844
+19	6302	8152880026700000	native/CMakeFiles/si_core.dir/src/GaussianParser.cpp.obj	822876ee0044a062
+2963	6388	8152880060000000	native/CMakeFiles/si_core.dir/src/ProjectStore.cpp.obj	b24c22deebec3335
+2994	7071	8152880060000000	native/CMakeFiles/si_core.dir/src/DocxWriter.cpp.obj	73083a3da4a86b2a
+7074	7739	8152880100000000	native/libsi_core.a	69222cf34c3de2ce
+7739	8374	8152880120000000	native/.qt/rcc/qrc_si_document_references.cpp	49c0eb3df609bae0
+7739	8374	8152880120000000	S:/build-startup-2s-ascii/native/.qt/rcc/qrc_si_document_references.cpp	49c0eb3df609bae0
+7752	22471	8152880260000000	native/SIGenerator_autogen/timestamp	d7676e1b7da7c46d
+7752	22471	8152880260000000	native/SIGenerator_autogen/mocs_compilation.cpp	d7676e1b7da7c46d
+7752	22471	8152880260000000	S:/build-startup-2s-ascii/native/SIGenerator_autogen/timestamp	d7676e1b7da7c46d
+7752	22471	8152880260000000	S:/build-startup-2s-ascii/native/SIGenerator_autogen/mocs_compilation.cpp	d7676e1b7da7c46d
+22480	31616	8152880260000000	native/CMakeFiles/SIGenerator.dir/src/MolecularStyle.cpp.obj	e3af3b94082eb397
+22477	31744	8152880260000000	native/CMakeFiles/SIGenerator.dir/src/main.cpp.obj	80df6fe50ec695e7
+22472	32519	8152880260000000	native/CMakeFiles/SIGenerator.dir/SIGenerator_autogen/mocs_compilation.cpp.obj	d246cb1cc5ecbb44
+22485	33858	8152880260000000	native/CMakeFiles/SIGenerator.dir/src/FigureSetupDialog.cpp.obj	924f076039bcb29d
+31745	39835	8152880360000000	native/CMakeFiles/SIGenerator.dir/src/ProjectManagerDialog.cpp.obj	d3e1bbf07bf6cf91
+31617	41111	8152880360000000	native/CMakeFiles/SIGenerator.dir/src/ReactionWorkspace.cpp.obj	e7d253dbd0124af5
+41112	41949	8152880440000000	native/CMakeFiles/SIGenerator.dir/resources/si-generator.rc.obj	fb11051494337e8
+41950	42343	8152880460000000	native/CMakeFiles/SIGenerator.dir/.qt/rcc/qrc_si_document_references.cpp.obj	ce93a98aaecc6c8f
+33859	42652	8152880380000000	native/CMakeFiles/SIGenerator.dir/src/MoleculeViewWidget.cpp.obj	d649c10f064f2789
+39836	46057	8152880440000000	native/CMakeFiles/SIGenerator.dir/src/DocumentPreviewWidget.cpp.obj	18893f4daae89aac
+32520	54105	8152880360000000	native/CMakeFiles/SIGenerator.dir/src/MainWindow.cpp.obj	8f822ee803148458
+54106	55296	8152880580000000	S:/SIGenerator.exe	d313d886d3cc87d1

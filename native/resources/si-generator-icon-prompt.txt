@@ -1,0 +1,8 @@
+Tool: built-in image_gen (not CLI).
+Asset: native/resources/si-generator.png
+Windows icon: native/resources/si-generator.ico (16, 24, 32, 48, 64, 128, 256 px)
+Source: C:/Users/이영섭/.codex/generated_images/01a1921b-2af8-7823-988f-63a2232c61be/exec-94d4cd9d-5fa6-45fd-b252-dc351eb9311a.png
+Prompt:
+Use case: logo-brand. Asset type: Windows desktop app icon for SI Generator, scientific Supporting Information document authoring software. Create one polished square app icon, not a mockup sheet. A bold clean white document with a folded upper corner merges with a simple molecular motif of three linked spheres, suggesting chemistry becoming a publication. Dark deep navy rounded-square tile, teal and cool blue molecular accents, restrained professional luminous depth, crisp silhouette, large simple forms, readable at 32px and 16px. Centered with modest margin. No text, letters, numbers, checkmarks, shields, magnifying glasses, extra decorations, photorealistic scene, or surrounding desktop. Transparent outside the rounded-square tile. Deliver a single finished icon.
+transparent_background: true
+ICO conversion preserves the artwork; only file format and icon resolutions change.

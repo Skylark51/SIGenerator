@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"S:/build-stage-release/cmake_install.cmake",
+		"S:/build-stage-release/native/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

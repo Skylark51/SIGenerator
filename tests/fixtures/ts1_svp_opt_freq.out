@@ -1,0 +1,16 @@
+ Entering Gaussian System
+ #p ub3lyp/def2-SVP opt=(ts,noeigentest) freq
+
+ ts1 radical svp opt freq
+
+ Charge = 0 Multiplicity = 2
+ SCF Done:  E(UB3LYP) =  -150.101010     A.U. after   20 cycles
+ Thermal correction to Gibbs Free Energy=         0.098765
+ Sum of electronic and thermal Free Energies=    -150.002245
+ Frequencies --  -312.45    24.10    55.20
+ Mulliken charges and spin densities with hydrogens summed into heavy atoms:
+      1  C    0.100   0.456
+      2  O   -0.200   0.321
+ Sum of Mulliken charges = 0.000
+ Normal termination of Gaussian 16
+

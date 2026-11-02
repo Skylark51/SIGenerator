@@ -1,0 +1,16 @@
+# ninja log v7
+28	5217	8147276200000000	native/CMakeFiles/si_core.dir/src/SIModel.cpp.obj	d1867b88eaa3112e
+34	5958	8147276200000000	native/CMakeFiles/si_core.dir/src/ProjectStore.cpp.obj	781c5dfc51c936d2
+32	6356	8147276200000000	native/CMakeFiles/si_core.dir/src/DocumentModel.cpp.obj	7994153ab09372a9
+23	8418	8147276191800000	native/CMakeFiles/si_core.dir/src/GaussianParser.cpp.obj	8b0434f42804e786
+6356	9074	8147276260000000	native/CMakeFiles/si_parse.dir/src/parse_main.cpp.obj	d1445d8fbb3b8c1a
+5959	9814	8147276260000000	native/CMakeFiles/si_core.dir/src/XyzWriter.cpp.obj	3503d68fc614851d
+5219	9936	8147276260000000	native/CMakeFiles/si_core.dir/src/DocxWriter.cpp.obj	c61d4e5f4935c27
+9936	10380	8147276300000000	native/libsi_core.a	9eb3ebecadd8edb4
+9074	12428	8147276300000000	native/CMakeFiles/si_benchmark.dir/src/benchmark_main.cpp.obj	7ef059cba29f061
+8419	14000	8147276280000000	native/CMakeFiles/si_docx_smoke.dir/src/docx_smoke.cpp.obj	e45e7ac6a0ea2bd6
+14004	16911	8147276340000000	native/si_parse.exe	3692969e18d93908
+16911	19504	8147276380000000	native/si_docx_smoke.exe	14d8bcf29fb1a2f5
+9815	21417	8147276300000000	native/CMakeFiles/si_regression.dir/src/regression_main.cpp.obj	9cb8c16eacf2a77a
+19504	22463	8147276400000000	native/si_benchmark.exe	9f870d49e9fb351d
+21420	24229	8147276420000000	native/si_regression.exe	d1ce4fbd406dd528

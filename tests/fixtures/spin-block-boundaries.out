@@ -1,0 +1,25 @@
+ Gaussian 16
+ # UB3LYP/Def2-SVP opt freq
+
+ Charge = 0 Multiplicity = 3
+ SCF Done: E(UB3LYP) = -100.0 A.U.
+ Mulliken charges and spin densities:
+               1          2
+     1 C     0.100000   1.200000
+     2 H     0.000000   0.400000
+     3 O    -0.100000   0.400000
+ Sum of Mulliken charges = 0.00000  2.00000
+ Mulliken charges and spin densities with hydrogens summed into heavy atoms:
+               1          2
+     1 C     0.100000   1.600000D+00
+     3 O    -0.100000   4.000000D-01
+ Sum of Mulliken charges = 0.00000  2.00000
+ APT charges:
+     1 C     0.500000   9.000000
+     2 H     0.500000   9.000000
+ Electronic spatial extent (au): <R**2>= 100.000
+ Mulliken charges and spin densities:
+               1          2
+ APT charges:
+     1 C     0.500000   8.000000
+ Normal termination of Gaussian 16

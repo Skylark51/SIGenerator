@@ -1,0 +1,21 @@
+ #p b3lyp/def2svp opt freq
+
+ Charge = 0 Multiplicity = 1
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.000000    0.000000    0.000000
+      2          1           0        0.957200    0.000000    0.000000
+      3          1           0       -0.239987    0.927297    0.000000
+ ---------------------------------------------------------------------
+ SCF Done:  E(RB3LYP) =  -76.4000000000     A.U. after 10 cycles
+ Sum of electronic and thermal Free Energies=    -76.390000
+ Mulliken charges and spin densities:
+              1
+     1  O   -0.800000   0.100000
+     2  H    0.400000  -0.050000
+     3  H    0.400000  -0.050000
+
+ Normal termination of Gaussian 16

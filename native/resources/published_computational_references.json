@@ -1,0 +1,44 @@
+{
+  "source": "D:/이영섭/01_연구/01_계산화학/15.UNIST/출판 논문 SI.pdf",
+  "source_pages": [
+    80,
+    81
+  ],
+  "computational_details_pages": [
+    7,
+    8
+  ],
+  "note": "Transcribed from the published SI; only PDF line wrapping and whitespace were normalized. Labels are source labels, not automatically renumbered. S25 specifies Gaussian 16 Revision B.01. S27(b) concerns Coulomb-fitting basis sets. S29 concerns dispersion damping; verify the actual dispersion option before citing. Availability does not imply that every reference applies to current calculations.",
+  "entries": [
+    {
+      "label": "S24",
+      "topic": "DFT (Kohn–Sham)",
+      "text": "S24. Kohn, W.; Sham, L. Self-Consistent Equations Including Exchange and Correlation Effects. J. Phys. Rev., 1965, 140, A1133-A1138."
+    },
+    {
+      "label": "S25",
+      "topic": "Gaussian 16, Revision B.01",
+      "text": "S25. Frisch, M. J.; Trucks, G. W.; Schlegel, H. B.; Scuseria, G. E.; Robb, M. A.; Cheeseman, J. R.; Scalmani, G.; Barone, V.; Petersson, G. A.; Nakatsuji, H.; Li, X.; Caricato, M.; Marenich, A. V.; Bloino, J.; Janesko, B. G.; Gomperts, R.; Mennucci, B.; Hratchian, H. P.; Ortiz, J. V.; Izmaylov, A. F.; Sonnenberg, J. L.; Williams-Young, D.; Ding, F.; Lipparini, F.; Egidi, F.; Goings, J.; Peng, B.; Petrone, A.; Henderson, T.; Ranasinghe, D.; Zakrzewski, V. G.; Gao, J.; Rega, N.; Zheng, G.; Liang, W.; Hada, M.; Ehara, M.; Toyota, K.; Fukuda, R.; Hasegawa, J.; Ishida, M.; Nakajima, T.; Honda, Y.; Kitao, O.; Nakai, H.; Vreven, T.; Throssell, K.; Montgomery, J. A. Jr.; Peralta, J. E.; Ogliaro, F.; Bearpark, M. J.; Heyd, J. J.; Brothers, E. N.; Kudin, K. N.; Staroverov, V. N.; Keith, T. A.; Kobayashi, R.; Normand, J.; Raghavachari, K.; Rendell, A. P.; Burant, J. C.; Iyengar, S. S.; Tomasi, J.; Cossi, M.; Millam, J. M.; Klene, M.; Adamo, C.; Cammi, R.; Ochterski, J. W.; Martin, R. L.; Morokuma, K.; Farkas, O.; Foresman, J. B.; Fox, D. J. Gaussian 16, Revision B.01, Gaussian, Inc., Wallingford CT, 2016."
+    },
+    {
+      "label": "S26",
+      "topic": "B3LYP (a–e)",
+      "text": "S26. (a) Becke, A. D. Density-Functional Exchange-Energy Approximation with Correct Asymptotic Behavior. Phys Rev A 1988, 38, 3098–3100.\n(b) Becke, A. D. Density‐Functional Thermochemistry. I. The Effect of the Exchange‐Only Gradient Correction. J. Chem. Phys. 1992, 96, 2155−2160.\n(c) Becke, A. D. A New Mixing of Hartree-Fock and Local Density-Functional Theories. J. Chem. Phys. 1993, 98, 1372−1377.\n(d) Lee, C.; Yang, W.; Parr, R. G. Development of the Colle-Salvetti Correlation-Energy Formula into a Functional of the Electron Density. Phys. Rev. B 1988, 37, 785–789.\n(e) Vosko, S. H.; Wilk, L.; Nusair, M. Accurate Spin-Dependent Electron Liquid Correlation Energies for Local Spin Density Calculations: A Critical Analysis. Can. J. Phys. 1980, 58, 1200-1211."
+    },
+    {
+      "label": "S27",
+      "topic": "def2 basis (a–b)",
+      "text": "S27. (a) Weigend, F.; Ahlrichs, R. Balanced Basis Sets of Split Valence, Triple Zeta Valence and Quadruple Zeta Valence Quality for H to Rn: Design and Assessment of Accuracy. Phys. Chem. Chem. Phys. 2005, 7, 3297–3305.\n(b) Weigend, F. Accurate Coulomb-Fitting Basis Sets for H to Rn. Phys. Chem. Chem. Phys. 2006, 8, 1057–1065."
+    },
+    {
+      "label": "S28",
+      "topic": "CPCM (a–b)",
+      "text": "S28. (a) Barone V.; Cossi, M. Quantum Calculation of Molecular Energies and Energy Gradients in Solution by a Conductor Solvent Model. J. Phys. Chem. A 1998, 102, 1995−2001.\n(b) Cossi, M.; Rega, N.; Scalmani, G.; Barone, V. Energies, Structures, and Electronic Properties of Molecules in Solution with the C-PCM Solvation Model. J. Comput. Chem. 2003, 24, 669–681."
+    },
+    {
+      "label": "S29",
+      "topic": "Dispersion damping (Grimme)",
+      "text": "S29. Grimme, S.; Ehrlich S.; Goerigk, L. Effect of the Damping Function in Dispersion Corrected Density Functional Theory. J. Comput. Chem. 2011, 32, 1456−1465."
+    }
+  ]
+}

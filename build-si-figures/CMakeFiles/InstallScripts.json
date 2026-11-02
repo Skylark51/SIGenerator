@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"S:/build-si-figures/cmake_install.cmake",
+		"S:/build-si-figures/native/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
