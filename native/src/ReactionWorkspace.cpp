@@ -70,6 +70,23 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   stageNameEdit_=new QLineEdit(stageSettings_);stageNameEdit_->setObjectName("activeStageName");stageNameEdit_->setPlaceholderText(tr("반응 단계 이름"));stageLayout->addWidget(stageNameEdit_);
   auto* referenceRow=new QHBoxLayout;referenceRow->addWidget(new QLabel(tr("기준 구조"),stageSettings_));stageReference_=new QComboBox(stageSettings_);stageReference_->setObjectName("activeStageReference");referenceRow->addWidget(stageReference_,1);stageLayout->addLayout(referenceRow);
   auto* tables=new QHBoxLayout;const QStringList names={tr("절대 에너지"),tr("상대 에너지"),tr("스핀"),tr("기하")};for(int i=0;i<4;++i){stageTableChecks_[i]=new QCheckBox(names[i],stageSettings_);stageTableChecks_[i]->setObjectName("stageTable_"+tableKeys[i]);tables->addWidget(stageTableChecks_[i]);connect(stageTableChecks_[i],&QCheckBox::toggled,this,[this,i](bool checked){if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage[tableKeys[i]]=checked;reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});}stageLayout->addLayout(tables);
+  stageManualRelativeToggle_=new QCheckBox(tr("이 반응 상대에너지 직접 입력 (ΔG, kcal/mol)"),stageSettings_);
+  stageManualRelativeToggle_->setObjectName("stageManualRelativeToggle");
+  stageLayout->addWidget(stageManualRelativeToggle_);
+  stageManualRelativeHelp_=new QLabel(tr("구조 목록 순서대로 ΔG 한 개씩, 한 줄에 숫자 하나를 입력하세요.\n원자 수가 다른 구조가 섞인 반응은 수동 입력이 필수입니다."),stageSettings_);
+  stageManualRelativeHelp_->setWordWrap(true);stageLayout->addWidget(stageManualRelativeHelp_);
+  stageManualRelativeValues_=new QTextEdit(stageSettings_);stageManualRelativeValues_->setObjectName("stageManualRelativeValues");
+  stageManualRelativeValues_->setPlaceholderText(tr("예: 0.00\n19.25\n-4.70"));stageManualRelativeValues_->setFixedHeight(85);stageLayout->addWidget(stageManualRelativeValues_);
+  connect(stageManualRelativeToggle_,&QCheckBox::toggled,this,[this](bool checked){
+    if(updatingStageWorkspace_||activeStage_<0)return;
+    auto stage=reactionStages_[activeStage_].toObject();stage["manual_relative_enabled"]=checked;reactionStages_[activeStage_]=stage;
+    stageManualRelativeHelp_->setVisible(checked);stageManualRelativeValues_->setVisible(checked);scheduleDocumentRefresh();
+  });
+  connect(stageManualRelativeValues_,&QTextEdit::textChanged,this,[this]{
+    if(updatingStageWorkspace_||activeStage_<0)return;
+    auto stage=reactionStages_[activeStage_].toObject();stage["manual_relative_values"]=stageManualRelativeValues_->toPlainText();
+    reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();
+  });
   auto* figureBox=new QGroupBox(tr("이 반응 Figure · 캡션"),stageSettings_);figureBox->setCheckable(true);auto* figureLayout=new QVBoxLayout(figureBox);stageFigureCaptions_=new QTextEdit(figureBox);stageFigureCaptions_->setObjectName("activeStageFigureCaptions");stageFigureCaptions_->setFixedHeight(54);stageFigureCaptions_->setPlaceholderText(tr("Figure 그룹별 한 줄 · 비우면 반응명과 구조명 사용"));figureLayout->addWidget(stageFigureCaptions_);auto* prepare=new QPushButton(tr("이 반응 Figure 뷰 설정…"),figureBox);figureLayout->addWidget(prepare);connect(prepare,&QPushButton::clicked,this,[this]{prepareFigures();});connect(figureBox,&QGroupBox::toggled,this,[figureBox](bool open){for(auto* child:figureBox->findChildren<QWidget*>(QString(),Qt::FindDirectChildrenOnly))child->setVisible(open);});figureBox->setChecked(false);stageLayout->addWidget(figureBox);connect(stageFigureCaptions_,&QTextEdit::textChanged,this,[this]{if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["figure_captions"]=stageFigureCaptions_->toPlainText();reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});layout->addWidget(stageSettings_);stageSettings_->hide();
   connect(stageNameEdit_,&QLineEdit::textEdited,this,[this](const QString& text){if(updatingStageWorkspace_||activeStage_<0||text.trimmed().isEmpty())return;auto stage=reactionStages_[activeStage_].toObject();stage["name"]=text;reactionStages_[activeStage_]=stage;refreshStageNavigation();scheduleDocumentRefresh();});
   connect(stageNameEdit_,&QLineEdit::editingFinished,this,[this]{if(!updatingStageWorkspace_&&activeStage_>=0&&stageNameEdit_->text().trimmed().isEmpty())refreshStageWorkspace();});
@@ -80,7 +97,11 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   connect(stageGrid_,&QTableWidget::currentCellChanged,this,[this](int row){if(updatingStageWorkspace_||row<0||!stageGrid_->item(row,0))return;const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();for(int i=0;i<files_->rowCount();++i)if(files_->item(i,0)->data(Qt::UserRole).toString()==path){files_->selectRow(i);break;}QSignalBlocker blocked(stageLabelEdit_);stageLabelEdit_->setText(stageGrid_->item(row,0)->text());stageLabelPreview_->setText(si::formattedTextHtml(si::structureLabelMarkup(stageLabelEdit_->text())));});
   connect(stageGrid_,&QTableWidget::itemChanged,this,[this](QTableWidgetItem* item){if(updatingStageWorkspace_||item->column()!=0)return;const auto name=item->text().trimmed();const auto path=item->data(Qt::UserRole).toString();if(name.isEmpty()){refreshStageWorkspace();return;}for(int i=0;i<files_->rowCount();++i)if(files_->item(i,0)->data(Qt::UserRole).toString()==path){const auto old=files_->item(i,0)->text();if(old!=name&&structureLabels().count(old)==1){for(auto* edit:{manualAbsoluteNames_,manualRelativeNames_,spinNames_,geometryNames_}){auto rows=edit->toPlainText().split('\n');for(auto& value:rows)if(value==old)value=name;QSignalBlocker blocked(edit);edit->setPlainText(rows.join('\n'));}}files_->item(i,0)->setText(name);if(files_->currentRow()==i){QSignalBlocker blocked(structureLabel_);structureLabel_->setText(name);}break;}markLabelsEdited();syncReferenceOptions();if(stageGrid_->currentRow()==item->row()&&stageLabelEdit_->text()!=name){QSignalBlocker blocked(stageLabelEdit_);stageLabelEdit_->setText(name);}stageLabelPreview_->setText(si::formattedTextHtml(si::structureLabelMarkup(name)));scheduleDocumentRefresh();});
   auto* actions=new QHBoxLayout;auto* newFile=new QPushButton(tr("새 Output 추가…"),box);actions->addWidget(newFile);connect(newFile,&QPushButton::clicked,this,&MainWindow::chooseFiles);addExistingStage_=new QPushButton(tr("기존 구조에서 추가"),box);addExistingStage_->setObjectName("addExistingStageStructures");actions->addWidget(addExistingStage_);connect(addExistingStage_,&QPushButton::clicked,this,&MainWindow::addExistingStageStructures);
-  removeStageMember_=new QPushButton(tr("반응에서 제외"),box);removeStageMember_->setObjectName("removeStageStructure");actions->addWidget(removeStageMember_);connect(removeStageMember_,&QPushButton::clicked,this,&MainWindow::removeStageStructure);layout->addLayout(actions);
+  removeStageMember_=new QPushButton(tr("반응에서 제외"),box);removeStageMember_->setObjectName("removeStageStructure");actions->addWidget(removeStageMember_);connect(removeStageMember_,&QPushButton::clicked,this,&MainWindow::removeStageStructure);
+  clearStageMembers_=new QPushButton(tr("이 목록 비우기"),box);clearStageMembers_->setObjectName("clearStageMembers");
+  clearStageMembers_->setToolTip(tr("현재 반응의 구조 배정만 모두 해제합니다. 전체 구조 보관함과 Gaussian 추출 데이터는 유지합니다."));
+  actions->addWidget(clearStageMembers_);connect(clearStageMembers_,&QPushButton::clicked,this,&MainWindow::clearStageStructures);
+  layout->addLayout(actions);
   auto* order=new QHBoxLayout;for(int delta:{-1,1}){auto* button=new QPushButton(delta<0?tr("↑ 위로"):tr("↓ 아래로"),box);button->setObjectName(delta<0?"moveStructureUp":"moveStructureDown");order->addWidget(button);connect(button,&QPushButton::clicked,this,[this,delta]{moveStageStructure(delta);});}
   auto* moveTo=new QPushButton(tr("위치 지정"),box);moveTo->setObjectName("moveStructureTo");order->addWidget(moveTo);connect(files_,&QTableWidget::itemSelectionChanged,this,&MainWindow::updateStructureOrderButtons);connect(stageGrid_,&QTableWidget::currentCellChanged,this,[this]{updateStructureOrderButtons();});connect(moveTo,&QPushButton::clicked,this,[this]{if(stageGrid_->currentRow()<0)return;bool accepted=false;int target=QInputDialog::getInt(this,tr("구조 위치"),tr("이동할 위치"),stageGrid_->currentRow()+1,1,stageGrid_->rowCount(),1,&accepted);if(accepted)moveStageStructure(target-1-stageGrid_->currentRow());});layout->addLayout(order);
   auto* nameRow=new QHBoxLayout;stageLabelEdit_=new QLineEdit(box);stageLabelEdit_->setObjectName("workspaceStructureName");stageLabelEdit_->setPlaceholderText(tr("선택 구조 이름 · 프로젝트 전체에 반영"));nameRow->addWidget(stageLabelEdit_,1);
@@ -153,7 +174,17 @@ void MainWindow::refreshStageNavigation(){
   if(activeStage_>=reactionStages_.size())activeStage_=reactionStages_.isEmpty()?-2:0;if(activeStage_>=0)stageNavigation_->setCurrentRow(activeStage_);
 }
 
-void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();}
+void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();if(stageNeedsManualRelative(stage)&&stageManualRelativeValues_)scrollTo(stageManualRelativeValues_);}
+
+bool MainWindow::stageNeedsManualRelative(int index) const {
+  if(index<0||index>=reactionStages_.size())return false;
+  QSet<int> atomCounts;
+  for(const auto& value:reactionStages_[index].toObject().value("files").toArray()){
+    const auto parsed=parsed_.value(value.toString());
+    if(parsed&&!parsed->finalGeometry.empty())atomCounts.insert(static_cast<int>(parsed->finalGeometry.size()));
+  }
+  return atomCounts.size()>1;
+}
 
 void MainWindow::refreshStageWorkspace(){
   if(!stageGrid_||!files_)return;{QSignalBlocker blocked(stageNavigation_);if(stageNavigation_->currentRow()!=activeStage_)stageNavigation_->setCurrentRow(activeStage_>=0?activeStage_:-1);}updatingStageWorkspace_=true;const bool selected=activeStage_>=0&&activeStage_<reactionStages_.size();const auto stage=selected?reactionStages_[activeStage_].toObject():QJsonObject();const auto paths=sourcePaths(),labels=structureLabels();QStringList visible;
@@ -163,6 +194,14 @@ void MainWindow::refreshStageWorkspace(){
   const auto masterPath=files_->currentRow()>=0?files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString():QString();const auto selectedPath=visible.contains(masterPath)?masterPath:stageGrid_->currentRow()>=0&&stageGrid_->item(stageGrid_->currentRow(),0)?stageGrid_->item(stageGrid_->currentRow(),0)->data(Qt::UserRole).toString():QString();bool rebuild=stageGrid_->rowCount()!=visible.size();if(!rebuild)for(int i=0;i<visible.size();++i)if(stageGrid_->item(i,0)->data(Qt::UserRole).toString()!=visible[i]||stageGrid_->item(i,0)->text()!=labels.value(paths.indexOf(visible[i])))rebuild=true;
   if(rebuild){QSignalBlocker blocked(stageGrid_);stageGrid_->setRowCount(0);stageGrid_->setRowCount(visible.size());for(int i=0;i<visible.size();++i){auto* label=new QTableWidgetItem(labels.value(paths.indexOf(visible[i])));label->setData(Qt::UserRole,visible[i]);stageGrid_->setItem(i,0,label);auto* output=new QTableWidgetItem(QFileInfo(visible[i]).fileName());output->setFlags(output->flags()&~Qt::ItemIsEditable);output->setToolTip(visible[i]);stageGrid_->setItem(i,1,output);}if(!visible.isEmpty())stageGrid_->setCurrentCell(std::max(0,int(visible.indexOf(selectedPath))),0);}
   structureScope_->setText(selected?stage["name"].toString()+tr(" · 구조 %1개").arg(visible.size()):activeStage_==-3?tr("미배정 구조 · %1개").arg(visible.size()):activeStage_==-1?tr("전체 SI · 구조 %1개").arg(visible.size()):tr("전체 구조 보관함 · %1개").arg(visible.size()));stageSettings_->setVisible(selected);addExistingStage_->setEnabled(selected&&!parsing_);removeStageMember_->setText(selected?tr("이 반응에서 제외"):tr("보관함에서 제거"));
+  clearStageMembers_->setVisible(selected);clearStageMembers_->setEnabled(selected&&!visible.isEmpty()&&!parsing_);
+  const bool needsManual=selected&&stageNeedsManualRelative(activeStage_);
+  const bool useManual=selected&&(needsManual||stage.value("manual_relative_enabled").toBool(false));
+  {QSignalBlocker blocked(stageManualRelativeToggle_);stageManualRelativeToggle_->setChecked(useManual);stageManualRelativeToggle_->setEnabled(selected&&!needsManual);
+    stageManualRelativeToggle_->setToolTip(needsManual?tr("원자 수가 서로 달라 수동 입력을 해제할 수 없습니다."):QString());}
+  {QSignalBlocker blocked(stageManualRelativeValues_);stageManualRelativeValues_->setPlainText(stage.value("manual_relative_values").toString());}
+  stageManualRelativeHelp_->setVisible(useManual);stageManualRelativeValues_->setVisible(useManual);
+  stageManualRelativeHelp_->setText(needsManual?tr("⚠ 원자 수가 다른 구조입니다. 절대 전자에너지 차이로 상대에너지를 계산할 수 없습니다. 아래에 현재 반응 구조 순서대로 ΔG (kcal/mol)를 입력하세요."):tr("한 줄에 하나씩 ΔG (kcal/mol) 수치를 입력하세요. 현재 반응의 구조 순서에 대응합니다."));
   {QSignalBlocker blocked(stageNameEdit_);if(stageNameEdit_->text()!=stage["name"].toString())stageNameEdit_->setText(stage["name"].toString());} {QSignalBlocker blocked(stageReference_);stageReference_->clear();for(const auto& path:visible)stageReference_->addItem(labels.value(paths.indexOf(path)),path);stageReference_->setCurrentIndex(std::max(0,stageReference_->findData(stage["reference"].toString())));}
   {QSignalBlocker blocked(stageFigureCaptions_);if(stageFigureCaptions_->toPlainText()!=stage["figure_captions"].toString())stageFigureCaptions_->setPlainText(stage["figure_captions"].toString());}captions_->setEnabled(reactionStages_.isEmpty());captions_->setToolTip(tr("반응별 캡션은 구조 화면의 Figure · 캡션에서 입력합니다."));
   for(int i=0;i<4;++i){QSignalBlocker blocked(stageTableChecks_[i]);stageTableChecks_[i]->setChecked(stage.value(tableKeys[i]).toBool(i==0?includeAbsolute_->isChecked():true));}
@@ -244,6 +283,20 @@ void MainWindow::addExistingStageStructures(){
 
 void MainWindow::removeStageStructure(){
   const int row=stageGrid_->currentRow();if(row<0)return;if(activeStage_<0){removeSelected();refreshStageWorkspace();return;}auto stage=reactionStages_[activeStage_].toObject();auto members=stage["files"].toArray();const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();for(int i=members.size()-1;i>=0;--i)if(members[i].toString()==path)members.removeAt(i);stage["files"]=members;if(stage["reference"].toString()==path)stage["reference"]=members.isEmpty()?QString():members.first().toString();reactionStages_[activeStage_]=stage;refreshStageNavigation();refreshStageWorkspace();scheduleDocumentRefresh();
+}
+
+void MainWindow::clearStageStructures(){
+  if(activeStage_<0||activeStage_>=reactionStages_.size()||parsing_)return;
+  auto stage=reactionStages_[activeStage_].toObject();
+  const int count=stage.value("files").toArray().size();if(count==0)return;
+  if(QMessageBox::question(this,tr("이 목록 비우기"),tr("'%1' 반응에서 구조 %2개를 모두 제외할까요?\nGaussian 추출 데이터와 전체 구조 보관함은 유지됩니다.").arg(stage.value("name").toString()).arg(count))!=QMessageBox::Yes)return;
+  const auto id=stageId(stage);
+  stage["files"]=QJsonArray();stage["reference"]=QString();stage["figure_settings"]=QJsonObject();
+  stage["manual_relative_values"]=QString();
+  reactionStages_[activeStage_]=stage;
+  preparedStageFigures_.remove(id);
+  refreshStageNavigation();refreshDocumentModel();
+  status_->setText(tr("반응 구조 배정을 비웠습니다. 원본 구조 %1개는 전체 보관함에 남아 있습니다.").arg(count));
 }
 
 void MainWindow::moveStageStructure(int delta){
