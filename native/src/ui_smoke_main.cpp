@@ -244,7 +244,7 @@ struct Phase1Smoke {
     QTimer::singleShot(0,&window,[&]{
       auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
       ok&=check(message!=nullptr,"delete confirmation appears");
-      if(message)message->done(QMessageBox::Yes);
+      if(message&&message->button(QMessageBox::Yes))message->button(QMessageBox::Yes)->click();
     });
     window.removeReactionStage(1);
     ok&=check(window.reactionStages_.size()==1&&window.sourcePaths()==paths,"stage deletion retains Gaussian structures");
