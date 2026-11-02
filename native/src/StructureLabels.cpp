@@ -34,10 +34,10 @@ QVector<NamedStructureInput> namedStructureInputs(const QString& text) {
   // columns still import as individual files.
   static const QRegularExpression labelToken(QStringLiteral("^(?:\\d+-?[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*|[A-Z][A-Z0-9]*(?:-[A-Za-z0-9]+)*|\\^\\{\\d+\\}\\S+)$"));
   static const QRegularExpression spacedPair(QStringLiteral("^(\\S+)\\s+(.+)$"));
-  static const QRegularExpression outputFile(QStringLiteral("\.(?:out|log)$"),QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression outputFile(QStringLiteral("\\.(?:out|log)$"),QRegularExpression::CaseInsensitiveOption);
   // Keep spreadsheet rows intact until deciding whether their two columns
   // form a label/file pair. Splitting all tabs first loses that relationship.
-  const auto physicalLines=text.split(QRegularExpression("[\r\n]+"),Qt::SkipEmptyParts);
+  const auto physicalLines=text.split(QRegularExpression("[\\r\\n]+"),Qt::SkipEmptyParts);
   for(int row=0;row<physicalLines.size();++row){
     QString line=physicalLines[row];
     // Pasting an HTML table can put the structure label and filename on
