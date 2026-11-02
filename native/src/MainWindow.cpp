@@ -982,7 +982,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     return table.rows.size()==paths.size();
   };
   for(const auto& value:stages){const auto stage=value.toObject();const auto id=stage.value("id").toString(stage["name"].toString());model.stageOrder.append(id);model.stageNames.insert(id,stage["name"].toString());
-  int sourceStageIndex=-1;for(int index=0;index<reactionStages_.size();++index)if(stageId(reactionStages_[index].toObject())==id){sourceStageIndex=index;break;}
+  int sourceStageIndex=-1;for(int index=0;index<reactionStages_.size();++index)if(reactionStages_[index].toObject().value("id").toString(reactionStages_[index].toObject().value("name").toString())==id){sourceStageIndex=index;break;}
   for(const auto& table:model.tables){
     const QString key=table.section==si::DocumentSection::AbsoluteEnergy?"absolute":table.section==si::DocumentSection::RelativeEnergy?"relative":table.section==si::DocumentSection::SpinDensity?"spin":table.section==si::DocumentSection::SelectedGeometry?"geometry":"";
     if(key.isEmpty()||!canSplit(table))continue;
