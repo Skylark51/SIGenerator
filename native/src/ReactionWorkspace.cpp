@@ -111,7 +111,7 @@ void MainWindow::markLabelsEdited(){manualLabelsEdited_=true;labelInputAtManualE
 
 void MainWindow::pasteStructureTitles(const QString& pasted){
   if(parsing_){status_->setText(tr("파일 해석을 마친 뒤 제목을 수정하세요."));return;}
-  QString normalized=pasted;normalized.replace("\\r\\n","\\n").replace('\r','\n');
+  QString normalized=pasted;normalized.replace("\r\n","\n").replace('\r','\n');
   auto titles=normalized.split('\n',Qt::KeepEmptyParts);
   while(!titles.isEmpty()&&titles.last().isEmpty())titles.removeLast();
   const int first=stageGrid_->currentRow();
