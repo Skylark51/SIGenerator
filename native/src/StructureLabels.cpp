@@ -34,9 +34,18 @@ QVector<NamedStructureInput> namedStructureInputs(const QString& text) {
   // columns still import as individual files.
   static const QRegularExpression labelToken(QStringLiteral("^(?:\\d+-?[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*|[A-Z][A-Z0-9]*(?:-[A-Za-z0-9]+)*|\\^\\{\\d+\\}\\S+)$"));
   static const QRegularExpression spacedPair(QStringLiteral("^(\\S+)\\s+(.+)$"));
+  static const QRegularExpression outputFile(QStringLiteral("\\.(?:out|log)$"),QRegularExpression::CaseInsensitiveOption);
   // Keep spreadsheet rows intact until deciding whether their two columns
   // form a label/file pair. Splitting all tabs first loses that relationship.
-  for(const auto& line:text.split(QRegularExpression("[\\r\\n]+"),Qt::SkipEmptyParts)){
+  const auto physicalLines=text.split(QRegularExpression("[\\r\\n]+"),Qt::SkipEmptyParts);
+  for(int row=0;row<physicalLines.size();++row){
+    QString line=physicalLines[row];
+    // Pasting an HTML table can put the structure label and filename on
+    // consecutive lines. Recover that row without swallowing file-only input.
+    if(!line.contains('\t')&&row+1<physicalLines.size()&&labelToken.match(line.trimmed()).hasMatch()
+       &&outputFile.match(unquote(physicalLines[row+1])).hasMatch()){
+      line+='\t'+unquote(physicalLines[++row]);
+    }
     QStringList cells;QString cell;int depth=0;bool quoted=false;
     auto flush=[&]{cells.append(unquote(cell));cell.clear();};
     for(const auto c:line){
