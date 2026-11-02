@@ -278,8 +278,8 @@ struct Phase1Smoke {
     ok&=check(QFile::copy(fixture,primary),"portable project input fixture copied");
     QFile spe(singlePoint);
     if(!spe.open(QIODevice::WriteOnly))return false;
-    spe.write("#p b3lyp/def2tzvpp sp\\n Charge = 0 Multiplicity = 1\\n"
-              " SCF Done: E(RB3LYP) = -76.500000 A.U.\\n Normal termination of Gaussian 16\\n");
+    spe.write("#p b3lyp/def2tzvpp sp\n Charge = 0 Multiplicity = 1\n"
+              " SCF Done: E(RB3LYP) = -76.500000 A.U.\n Normal termination of Gaussian 16\n");
     spe.close();
     source.parsePaths({primary},false,false);
     if(!waitForImport(source))return false;
@@ -313,7 +313,7 @@ struct Phase1Smoke {
       "offline project exports DOCX without output files");
     return ok;
   }
-    static bool reactionStageWorkflow(const QString& fixture){
+  static bool reactionStageWorkflow(const QString& fixture){
     MainWindow window;QTemporaryDir temp;bool ok=true;
     ok&=check(!window.includeDispersion_->isChecked()&&!window.includeComplexation_->isChecked(),"new SI starts with optional corrections off");
     QStringList paths;for(int i=0;i<4;++i){const auto path=temp.filePath(QString("stage-%1.log").arg(i));QFile::copy(fixture,path);paths.append(path);}window.parsePaths(paths,false,false);if(!waitForImport(window))return false;
