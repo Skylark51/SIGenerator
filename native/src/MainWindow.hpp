@@ -87,7 +87,7 @@ private:
   void chooseDirectory();
   void addNamedFiles(bool replace=false);
   void acceptPaths(const QStringList& paths);
-  void parsePaths(const QList<QString>& paths, bool append = false, bool discoverIrc = true, const QString& targetStageId=QStringLiteral("@active"));
+  void parsePaths(const QList<QString>& paths, bool append = false, bool discoverIrc = true, const QString& targetStageId=QStringLiteral("@active"), const QJsonObject& restoredSnapshots={}, const QJsonObject& restoredPairedPaths={});
   void selectStructure();
   void renameSelected();
   void removeSelected();
