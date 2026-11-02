@@ -41,7 +41,7 @@ function Get-LatestReleaseZip {
     }
 
     Write-Host "Downloading Windows build for commit $localHead (run $($matchedRun.databaseId))..."
-    & gh run download $matchedRun.databaseId -R Skylark51/SIGenerator -n SI-Generator-Windows-x64 -D $DestinationDirectory
+    & gh run download $matchedRun.databaseId -R Skylark51/SIGenerator -n SI-Generator-Windows-x64 -D $DestinationDirectory | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "GitHub Actions artifact download failed. Verify gh auth login and the workflow run."
     }
