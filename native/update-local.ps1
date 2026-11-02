@@ -51,8 +51,8 @@ try {
             } else {
                 $created.Add($destination)
             }
-            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
             $installed.Add($relative)
+            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
         }
     } catch {
         foreach ($relative in $installed) {
