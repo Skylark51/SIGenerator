@@ -319,6 +319,28 @@ UI 검사에 반응별 순서 분리·현재/전체 미리보기·공통 구조�
 - 현재 반응 구조 목록에서 `구조명 | Output 파일 | M | Freq | SPE | Imag | 상태`를 확인합니다. 상태에 마우스를 올리면 기존 검증 경고가 표시됩니다. 반응 단계 일괄 편집창은 기존의 2열 엑셀 붙여넣기 방식을 유지합니다.
 - 상단 툴바는 파일/설정/분자/내보내기로 묶고 **파일 추가**, **저장**, **SI 생성**에는 텍스트를 표시합니다. 설정 아이콘과 Alt+1~5 단축키는 그대로 사용합니다.
 
+## GitHub에서 기존 로컬 EXE 자동 업데이트 (2026-11-02)
+
+소스 코드를 동기화하는 `git pull`만으로는 실행 파일이 갱신되지 않습니다. `SIGenerator.exe`와 Qt DLL은 Git 추적에서 제외하고, GitHub Actions에서 따로 빌드합니다.
+
+**처음 한 번만** Windows에서 GitHub CLI를 설치하고 로그인합니다.
+
+```powershell
+winget install --id GitHub.cli -e
+gh auth login
+```
+
+이후에는 프로그램을 종료한 뒤 **기존 SI_Generator_Project 폴더**에서 아래 두 명령을 실행합니다.
+
+```powershell
+git pull --ff-only origin main
+.\native\update-local.ps1
+```
+
+스크립트는 로컬 커밋과 **정확히 일치하는 main 브랜치의 성공한 Windows 빌드**를 GitHub Actions에서 찾습니다. 배포 패키지는 임시 폴더에 다운로드하고, EXE와 Qt 런타임을 원래 프로젝트 폴더에 설치합니다. 기존 실행 파일은 `backups/runtime-날짜`에 백업하며 임시 ZIP은 작업이 끝나면 삭제합니다. `Downloads` 폴더에 ZIP을 수동으로 저장할 필요가 없습니다.
+
+아직 해당 커밋의 Windows 빌드가 완료되지 않았거나 실패한 경우 업데이트를 중지하고 안내합니다. 이미 내려받은 ZIP을 사용할 때만 `-PackagePath "실제 ZIP 경로"`를 명시합니다.
+
 ## Windows 실행 파일 빌드와 배포
 
 Qt 6.8.3 MSVC 2022 x64 및 Visual Studio 2022 C++ 빌드 도구가 필요합니다. PowerShell에서 저장소 루트로 이동하여 다음을 실행합니다.
