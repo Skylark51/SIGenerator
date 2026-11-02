@@ -311,3 +311,34 @@ Windows 실행 파일의 아이콘과 앱 창 아이콘에 내장했습니다.
 검증: Release 빌드, Gaussian·DOCX·UI 회귀 검사 3종 통과.
 UI 검사에 반응별 순서 분리·현재/전체 미리보기·공통 구조명·배정 제외·기존 파일 재배정·대기 요청의 반응 유지·
 선택형 추출 정보·반응별 Figure 구성과 DOCX 배치·프로젝트 저장 및 복원을 포함합니다.
+
+## UI 작업 영역 개편 (2026-11-02)
+
+- 오른쪽 **3D 분자 뷰어 / SI 문서 미리보기**를 탭으로 전환합니다. 한 번에 한 화면에 넓은 공간을 배정합니다.
+- 오른쪽 위 **크게 보기**는 반응 탐색기와 입력 영역을 접어 뷰어를 확대합니다. **기본 화면**을 누르면 기존 분할 상태로 돌아갑니다.
+- 현재 반응 구조 목록에서 `구조명 | Output 파일 | M | Freq | SPE | Imag | 상태`를 확인합니다. 상태에 마우스를 올리면 기존 검증 경고가 표시됩니다. 반응 단계 일괄 편집창은 기존의 2열 엑셀 붙여넣기 방식을 유지합니다.
+- 상단 툴바는 파일/설정/분자/내보내기로 묶고 **파일 추가**, **저장**, **SI 생성**에는 텍스트를 표시합니다. 설정 아이콘과 Alt+1~5 단축키는 그대로 사용합니다.
+
+## Windows 실행 파일 빌드와 배포
+
+Qt 6.8.3 MSVC 2022 x64 및 Visual Studio 2022 C++ 빌드 도구가 필요합니다. PowerShell에서 저장소 루트로 이동하여 다음을 실행합니다.
+
+```powershell
+.\native\build-release.ps1 -QtRoot "C:\Qt\6.8.3\msvc2022_64"
+```
+
+스크립트는 Release 빌드, CTest 회귀 검사, `windeployqt` 런타임 배치 후 `SI-Generator-Windows-x64.zip`을 생성합니다. 압축을 풀어 같은 폴더의 `SIGenerator.exe`를 실행하세요. 새 버전으로 패치할 때는 프로그램을 종료하고 **새 ZIP의 내용을 통째로 덮어쓰기** 하면 됩니다. 앱의 사용자 프로젝트 `.si_project.json`과 Gaussian 원본 파일은 배포 폴더 외부에 보관하는 것이 안전합니다.
+
+GitHub Actions의 **Windows release build** 워크플로는 `main` 업데이트와 PR에서 자동 빌드·테스트합니다. 성공하면 해당 실행의 **Artifacts → SI-Generator-Windows-x64**에서 ZIP을 받을 수 있습니다. `v*` 태그를 푸시하면 검증 후 GitHub Release에도 ZIP을 첨부합니다.
+
+```powershell
+git add native/src .github/workflows native/build-release.ps1 README.md .gitignore
+git commit -m "Improve UI and Windows distribution"
+git push origin main
+
+# 배포 버전을 고정할 때 (중복되지 않는 버전 번호 사용)
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+소스 및 빌드 설정만 Git으로 커밋합니다. `dist/`, `*.exe`, 배포 ZIP은 `.gitignore`에 의해 추적되지 않으며 GitHub Actions Artifacts 또는 Releases로 제공합니다.
