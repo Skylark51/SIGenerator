@@ -1074,7 +1074,7 @@ bool figureWorkflowSmoke(){
   FigureSetupDialog customized(structures,paths,{});customized.show();
   QTimer::singleShot(0,&customized,[]{
     if(auto* chooser=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){
-      chooser->setCurrentIndex(5);chooser->accept();
+      if(auto* choices=chooser->findChild<QComboBox*>())choices->setCurrentIndex(5);chooser->accept();
     }
   });
   customized.findChild<QPushButton*>("appendFigureRow")->click();
@@ -1082,7 +1082,7 @@ bool figureWorkflowSmoke(){
     "custom Figure row can be created by selecting a structure name");
   QTimer::singleShot(0,&customized,[]{
     if(auto* chooser=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){
-      chooser->setCurrentIndex(0);chooser->accept();
+      if(auto* choices=chooser->findChild<QComboBox*>())choices->setCurrentIndex(0);chooser->accept();
     }
   });
   customized.findChild<QPushButton*>("addFigurePanel")->click();
