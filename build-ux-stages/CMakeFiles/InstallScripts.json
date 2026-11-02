@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"E:/\uc774\uc601\uc12d/\ud504\ub85c\uc81d\ud2b8 \uac1c\ubc1c/\uac1c\ubc1c\ud504\ub85c\uc81d\ud2b8/SI_generator_\uad00\ub828/SI_Generator_Project/build-ux-stages/cmake_install.cmake",
-		"E:/\uc774\uc601\uc12d/\ud504\ub85c\uc81d\ud2b8 \uac1c\ubc1c/\uac1c\ubc1c\ud504\ub85c\uc81d\ud2b8/SI_generator_\uad00\ub828/SI_Generator_Project/build-ux-stages/native/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

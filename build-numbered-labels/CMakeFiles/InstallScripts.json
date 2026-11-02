@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"S:/build-numbered-labels/cmake_install.cmake",
-		"S:/build-numbered-labels/native/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

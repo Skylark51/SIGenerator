@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"S:/build-startup-2s-ascii/cmake_install.cmake",
-		"S:/build-startup-2s-ascii/native/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

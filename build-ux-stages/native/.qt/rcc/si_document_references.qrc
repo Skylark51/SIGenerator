@@ -1,7 +1,0 @@
-<RCC>
-  <qresource prefix="/si">
-    <file alias="recovered_computational_references.txt">E:/이영섭/프로젝트 개발/개발프로젝트/SI_generator_관련/SI_Generator_Project/native/resources/recovered_computational_references.txt</file>
-    <file alias="published_computational_references.json">E:/이영섭/프로젝트 개발/개발프로젝트/SI_generator_관련/SI_Generator_Project/native/resources/published_computational_references.json</file>
-  </qresource>
-</RCC>
-

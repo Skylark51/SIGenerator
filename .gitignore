@@ -1,0 +1,40 @@
+# Generated CMake/Ninja build trees
+/build-*/
+/build*/
+/cmake-build-*/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/build.ninja
+**/.ninja_*
+**/Testing/
+**/*_autogen/
+
+# Local backups and temporary output
+/backups/
+/tmp/
+*.obj
+*.o
+*.a
+*.pdb
+*.ilk
+
+# Windows application deployment assets (package via native/deploy.ps1)
+/*.exe
+/*.dll
+/platforms/
+/generic/
+/imageformats/
+/networkinformation/
+/styles/
+/tls/
+
+# Local environment and editor settings
+.env
+.env.*
+!.env.example
+.vs/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
