@@ -204,6 +204,41 @@ struct Phase1Smoke {
     ok&=check(render(),"current reaction Figure preparation succeeds");window.chooseStageScope(1);window.stageFigureCaptions_->setPlainText("Reaction B figure one\nReaction B figure two");ok&=check(render(),"second reaction Figure preparation succeeds independently");window.refreshDocumentModel();ok&=check(window.documentModel_.figures.size()==3&&window.documentModel_.figures[0].stageId!=window.documentModel_.figures.last().stageId,"rendered Figures keep reaction membership");
     QString error;const auto docx=folder.filePath("grouped.docx");ok&=check(DocxWriter::writeDocument(docx,window.documentModel_,&error),"reaction grouped SI generated");QFile output(docx);if(output.open(QIODevice::ReadOnly)){const auto bytes=output.readAll();ok&=check(bytes.indexOf("r:embed=\"rIdFigure1\"")<bytes.indexOf("Reaction A: Relative")&&bytes.indexOf("Reaction A: Relative")<bytes.indexOf("r:embed=\"rIdFigure2\"")&&bytes.indexOf("r:embed=\"rIdFigure2\"")<bytes.indexOf("Reaction B: Relative"),"DOCX places each reaction Figure before its own tables");}else ok=false;
     const auto project=folder.filePath("workspace.si_project.json");ok&=check(window.saveProjectToPath(project),"reaction workspace saves");ProjectState loaded;ok&=check(ProjectStore::load(project,&loaded,&error)&&loaded.reactionStages==window.reactionStages_,"reaction order and Figure settings roundtrip");
+    // A mixed atom count must never silently produce a huge Hartree-based relative energy.
+    window.chooseStageScope(0);
+    const auto original=window.parsed_.value(paths[2]);
+    if(original){
+      auto changed=std::make_shared<si::GaussianResult>(*original);
+      if(!changed->finalGeometry.empty())changed->finalGeometry.push_back(changed->finalGeometry.back());
+      window.parsed_[paths[2]]=changed;
+    }
+    window.refreshDocumentModel();
+    ok&=check(window.stageNeedsManualRelative(0)&&window.stageManualRelativeToggle_->isChecked()
+      &&window.stageManualRelativeValues_->isVisible(),"atom-count mismatch automatically opens per-stage relative energy editor");
+    ok&=check(!window.preflightErrors().isEmpty(),"mixed atom-count relative energy requires manual values");
+    window.stageManualRelativeValues_->setPlainText("0.00\n12.50");
+    window.refreshDocumentModel();
+    bool hasManual=false;
+    for(const auto& table:window.documentModel_.tables){
+      if(table.section==si::DocumentSection::RelativeEnergy&&table.stageId==window.reactionStages_[0].toObject().value("id").toString(window.reactionStages_[0].toObject().value("name").toString())){
+        hasManual=table.headers.size()==2&&table.rows.size()==2&&table.rows[0].value(1)=="0.00"&&table.rows[1].value(1)=="12.50";
+      }
+    }
+    ok&=check(hasManual,"mixed atom-count reaction preview uses explicit kcal/mol entries only");
+    const auto manualProject=folder.filePath("manual-relative.si_project.json");
+    ok&=check(window.saveProjectToPath(manualProject),"manual relative values save with project");
+    ProjectState reopened;ok&=check(ProjectStore::load(manualProject,&reopened,&error)
+      &&reopened.reactionStages[0].toObject().value("manual_relative_values").toString()=="0.00\n12.50","stage manual values persist through project roundtrip");
+    const auto existingSources=window.sourcePaths();
+    QTimer::singleShot(0,&window,[]{
+      if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))
+        if(auto* yes=box->button(QMessageBox::Yes))yes->click();
+    });
+    window.clearStageStructures();
+    ok&=check(window.reactionStages_[0].toObject().value("files").toArray().isEmpty()
+      &&window.sourcePaths()==existingSources
+      &&window.reactionStages_[1].toObject().value("files").toArray().size()>0,
+      "clear stage only removes membership; all source files and other stages survive");
     if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){window.chooseStageScope(0);window.grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/reaction-workspace.png");}
     return ok;
   }
@@ -1036,6 +1071,33 @@ bool figureWorkflowSmoke(){
   ok&=check(figures[0].pixelWidth==3600&&figures[1].pixelWidth==2400&&figures[2].structureNames.size()==2,"3 then 2 then 2 Figure panel sizes");
   QSet<QString> names;for(const auto& figure:figures){for(const auto& name:figure.structureNames)names.insert(name);const auto image=QImage::fromData(figure.png);ok&=check(!image.isNull()&&qAlpha(image.pixel(0,0))==0,"self contained transparent molecular PNG");}
   ok&=check(names.size()==7&&figures[0].structureNames[0]=="Structure 3","manual endpoint swap preserves every molecule once");
+  FigureSetupDialog customized(structures,paths,{});customized.show();
+  QTimer::singleShot(0,&customized,[]{
+    if(auto* chooser=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){
+      if(auto* choices=chooser->findChild<QComboBox*>())choices->setCurrentIndex(5);chooser->accept();
+    }
+  });
+  customized.findChild<QPushButton*>("appendFigureRow")->click();
+  auto* customSelector=customized.findChild<QComboBox*>("figureStructure0");
+  if(customSelector)customSelector->setCurrentIndex(5);
+  ok&=check(customSelector&&customSelector->count()==7&&customSelector->currentData().toInt()==5,
+    "custom Figure row allows choosing any named structure independently");
+  QTimer::singleShot(0,&customized,[]{
+    if(auto* chooser=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){
+      if(auto* choices=chooser->findChild<QComboBox*>())choices->setCurrentIndex(0);chooser->accept();
+    }
+  });
+  customized.findChild<QPushButton*>("addFigurePanel")->click();
+  customized.findChild<QComboBox*>("figureStructure0")->setCurrentIndex(1);
+  customized.findChild<QPushButton*>("nextFigureGroup")->click();
+  ok&=check(customized.figures().size()==4&&customized.figures().last().structureNames==QStringList({"Structure 2","Structure 1"}),
+    "custom Figure row has freely selected structures, with repeated use across rows");
+  const auto customSettings=customized.settings();
+  ok&=check(customSettings.value("rows").toArray().size()==4&&customSettings.value("rows").toArray().last().toArray().size()==2,
+    "custom row composition is serialized for project persistence");
+  FigureSetupDialog restoredFigure(structures,paths,customSettings);
+  ok&=check(restoredFigure.settings().value("rows")==customSettings.value("rows"),
+    "custom Figure rows are restored with their source identities");
   ProjectState project;project.files=paths;project.figureSettings=dialog.settings();QString error;QTemporaryDir temp;
   ok&=check(ProjectStore::save(temp.filePath("figure.json"),project,&error),"save Figure settings");ProjectState restored;
   ok&=check(ProjectStore::load(temp.filePath("figure.json"),&restored,&error)&&restored.figureSettings==project.figureSettings&&!restored.includeAbsolute,"camera/order settings roundtrip and absolute opt in");

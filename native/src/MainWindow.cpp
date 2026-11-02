@@ -573,6 +573,21 @@ QStringList MainWindow::preflightErrors() const{
       }
     }
   }
+  for(int index=0;index<reactionStages_.size();++index){
+    const auto stage=reactionStages_[index].toObject();
+    if(!stage.value("relative").toBool(true))continue;
+    const bool manual=stageNeedsManualRelative(index)||stage.value("manual_relative_enabled").toBool(false);
+    if(!manual)continue;
+    const auto members=stage.value("files").toArray();if(members.isEmpty())continue;
+    const auto values=lines(stage.value("manual_relative_values").toString());
+    if(values.size()!=members.size()){
+      errors.append(tr("반응 '%1': 수동 ΔG 값 %2개가 필요합니다. 현재 %3개입니다.").arg(stage.value("name").toString()).arg(members.size()).arg(values.size()));
+      continue;
+    }
+    for(int i=0;i<values.size();++i){bool valid=false;const double number=values[i].toDouble(&valid);
+      if(!valid||!std::isfinite(number))errors.append(tr("반응 '%1': 수동 ΔG %2행에 유효한 숫자를 입력하세요.").arg(stage.value("name").toString()).arg(i+1));
+    }
+  }
   const auto spinLabels=lines(spinNames_->toPlainText());
   if(!spinLabels.isEmpty()&&spinLabels.size()!=files_->rowCount())errors.append(tr("스핀 구조명은 현재 구조 %1개와 같은 수로 입력하거나 비워 두세요. 현재 %2개입니다.").arg(files_->rowCount()).arg(spinLabels.size()));
   const auto spinGroups=indexGroups(spinIndices_->toPlainText());
@@ -967,6 +982,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     return table.rows.size()==paths.size();
   };
   for(const auto& value:stages){const auto stage=value.toObject();const auto id=stage.value("id").toString(stage["name"].toString());model.stageOrder.append(id);model.stageNames.insert(id,stage["name"].toString());
+  int sourceStageIndex=-1;for(int index=0;index<reactionStages_.size();++index)if(reactionStages_[index].toObject().value("id").toString(reactionStages_[index].toObject().value("name").toString())==id){sourceStageIndex=index;break;}
   for(const auto& table:model.tables){
     const QString key=table.section==si::DocumentSection::AbsoluteEnergy?"absolute":table.section==si::DocumentSection::RelativeEnergy?"relative":table.section==si::DocumentSection::SpinDensity?"spin":table.section==si::DocumentSection::SelectedGeometry?"geometry":"";
     if(key.isEmpty()||!canSplit(table))continue;
@@ -974,6 +990,18 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
       for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i])split.rows.append(row);}else split.rows.append(table.rows[i]);if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
       if(split.rows.isEmpty())continue;
       split.caption=stage["name"].toString()+": "+table.caption;
+      if(key=="relative"&&(stage.value("manual_relative_enabled").toBool(false)||(sourceStageIndex>=0&&stageNeedsManualRelative(sourceStageIndex)))){
+        const auto values=lines(stage.value("manual_relative_values").toString());
+        split.headers={tr("Structure"),tr("ΔG (kcal/mol)")};
+        split.caption=stage["name"].toString()+tr(": Manually assigned relative Gibbs energies (kcal/mol).");
+        split.rows.clear();
+        for(int memberIndex=0;memberIndex<members.size();++memberIndex){
+          const int sourceIndex=paths.indexOf(members[memberIndex].toString());if(sourceIndex<0)continue;
+          bool valid=false;const double value=values.value(memberIndex).toDouble(&valid);
+          split.rows.append({labels[sourceIndex],valid&&std::isfinite(value)?number(value,2,model.precisionOverride):tr("입력 필요")});
+        }
+        tables.append(split);continue;
+      }
       if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single"&&!selected.empty()){
         size_t ref=0;for(size_t i=0;i<selected.size();++i)if(QFileInfo(QString::fromStdWString(selected[i].frequency.path.wstring())).absoluteFilePath().compare(QFileInfo(stage["reference"].toString()).absoluteFilePath(),Qt::CaseInsensitive)==0)ref=i;
         const auto relative=si::legacyRelativeEnergies(selected,selected[ref],includeDispersion_->isChecked(),includeComplexation_->isChecked());
