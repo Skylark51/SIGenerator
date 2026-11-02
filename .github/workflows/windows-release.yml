@@ -66,6 +66,48 @@ jobs:
             throw "Original EXE backup missing"
           }
 
+      - name: Verify download-free local update command
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP "si-auto-update-test"
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          Copy-Item dist/SIGenerator.exe $target/
+          Copy-Item dist/Qt6Core.dll $target/
+          git -C $target init | Out-Null
+          git -C $target -c user.name=CI -c user.email=ci@example.com commit --allow-empty -m "test update" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Git fixture setup failed" }
+          $global:siMockHead = (& git -C $target rev-parse HEAD).Trim()
+          $global:siMockZip = (Resolve-Path ./SI-Generator-Windows-x64.zip).Path
+
+          function global:gh {
+            if ($args[0] -eq "run" -and $args[1] -eq "list") {
+              Write-Output ('[{"databaseId":123,"headSha":"' + $global:siMockHead + '"}]')
+              $global:LASTEXITCODE = 0
+              return
+            }
+            if ($args[0] -eq "run" -and $args[1] -eq "download") {
+              $index = [array]::IndexOf($args, "-D")
+              if ($index -lt 0) { throw "Mock download directory not specified" }
+              Copy-Item -LiteralPath $global:siMockZip -Destination $args[$index + 1] -Force
+              $global:LASTEXITCODE = 0
+              return
+            }
+            throw "Unexpected gh command: $args"
+          }
+
+          try {
+            & ./native/update-local.ps1 -ProjectRoot $target
+          } finally {
+            Remove-Item Function:/gh -ErrorAction SilentlyContinue
+          }
+          if (-not (Test-Path (Join-Path $target "SIGenerator.exe"))) {
+            throw "Automatic update did not install the executable"
+          }
+          if (-not (Get-ChildItem (Join-Path $target "backups") -Directory -Filter "runtime-*" |
+              Where-Object { Test-Path (Join-Path $_.FullName "SIGenerator.exe") })) {
+            throw "Automatic update did not back up the old executable"
+          }
+
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
