@@ -1078,8 +1078,10 @@ bool figureWorkflowSmoke(){
     }
   });
   customized.findChild<QPushButton*>("appendFigureRow")->click();
-  ok&=check(customized.findChild<QComboBox*>("figureStructure0")->currentData().toInt()==5,
-    "custom Figure row can be created by selecting a structure name");
+  auto* customSelector=customized.findChild<QComboBox*>("figureStructure0");
+  if(customSelector)customSelector->setCurrentIndex(5);
+  ok&=check(customSelector&&customSelector->count()==7&&customSelector->currentData().toInt()==5,
+    "custom Figure row allows choosing any named structure independently");
   QTimer::singleShot(0,&customized,[]{
     if(auto* chooser=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){
       if(auto* choices=chooser->findChild<QComboBox*>())choices->setCurrentIndex(0);chooser->accept();
