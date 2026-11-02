@@ -1,13 +1,12 @@
 # Update the original working directory without modifying Git-tracked source files.
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$PackagePath,
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = "Stop"
 $projectPath = [System.IO.Path]::GetFullPath($ProjectRoot)
-$zip = (Resolve-Path -LiteralPath $PackagePath).Path
 if (Get-Process -Name "SIGenerator" -ErrorAction SilentlyContinue) {
     throw "Close SIGenerator.exe before applying the update."
 }
@@ -15,14 +14,62 @@ if (-not (Test-Path -LiteralPath $projectPath -PathType Container)) {
     throw "Project directory not found: $projectPath"
 }
 
+function Get-LatestReleaseZip {
+    param([string]$DestinationDirectory, [string]$RepositoryRoot)
+
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw "GitHub CLI (gh) is required for automatic updates. Install it with: winget install --id GitHub.cli -e ; then run: gh auth login"
+    }
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        throw "Git is required for automatic updates. Install Git, then run git pull --ff-only origin main."
+    }
+
+    $headOutput = & git -C $RepositoryRoot rev-parse HEAD
+    if ($LASTEXITCODE -ne 0 -or -not $headOutput) {
+        throw "Unable to determine local Git commit. Run git pull --ff-only origin main in the project directory."
+    }
+    $localHead = ($headOutput -join "").Trim()
+
+    $runsOutput = & gh run list -R Skylark51/SIGenerator -w windows-release.yml -b main -s success --json databaseId,headSha -L 40
+    if ($LASTEXITCODE -ne 0 -or -not $runsOutput) {
+        throw "Could not query GitHub Actions. Check the network and run gh auth login."
+    }
+    $runs = @(($runsOutput -join "`n" | ConvertFrom-Json))
+    $matchedRun = $runs | Where-Object { $_.headSha -eq $localHead } | Select-Object -First 1
+    if (-not $matchedRun) {
+        throw "No successful Windows build matches local commit $localHead. Run git pull --ff-only origin main, wait for the main Windows release build to succeed, then retry."
+    }
+
+    Write-Host "Downloading Windows build for commit $localHead (run $($matchedRun.databaseId))..."
+    & gh run download $matchedRun.databaseId -R Skylark51/SIGenerator -n SI-Generator-Windows-x64 -D $DestinationDirectory
+    if ($LASTEXITCODE -ne 0) {
+        throw "GitHub Actions artifact download failed. Verify gh auth login and the workflow run."
+    }
+    $downloaded = Get-ChildItem -LiteralPath $DestinationDirectory -File -Filter "SI-Generator-Windows-x64.zip" -Recurse | Select-Object -First 1
+    if (-not $downloaded) {
+        throw "The Windows build artifact did not contain SI-Generator-Windows-x64.zip."
+    }
+    return $downloaded.FullName
+}
+
 $stage = Join-Path $env:TEMP ("SI-Generator-update-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $stage | Out-Null
 try {
-    Expand-Archive -LiteralPath $zip -DestinationPath $stage
-    $exe = Get-ChildItem -LiteralPath $stage -File -Filter SIGenerator.exe -Recurse | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($PackagePath)) {
+        $zip = Get-LatestReleaseZip -DestinationDirectory $stage -RepositoryRoot $projectPath
+    } else {
+        if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
+            throw "Package not found: $PackagePath. Omit -PackagePath to download the matching GitHub build automatically."
+        }
+        $zip = (Resolve-Path -LiteralPath $PackagePath).Path
+    }
+    $unpackDirectory = Join-Path $stage "unpacked"
+    New-Item -ItemType Directory -Path $unpackDirectory | Out-Null
+    Expand-Archive -LiteralPath $zip -DestinationPath $unpackDirectory
+    $exe = Get-ChildItem -LiteralPath $unpackDirectory -File -Filter SIGenerator.exe -Recurse | Select-Object -First 1
     if (-not $exe) {
         # GitHub Actions artifacts contain a ZIP inside the artifact ZIP.
-        $nested = Get-ChildItem -LiteralPath $stage -File -Filter "SI-Generator-Windows-x64.zip" -Recurse | Select-Object -First 1
+        $nested = Get-ChildItem -LiteralPath $unpackDirectory -File -Filter "SI-Generator-Windows-x64.zip" -Recurse | Select-Object -First 1
         if (-not $nested) { throw "Neither SIGenerator.exe nor a release package was found." }
         $inner = Join-Path $stage "release"
         Expand-Archive -LiteralPath $nested.FullName -DestinationPath $inner
