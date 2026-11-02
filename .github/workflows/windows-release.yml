@@ -48,6 +48,20 @@ jobs:
           Copy-Item README.md dist/README.md
           Compress-Archive -Path dist/* -DestinationPath SI-Generator-Windows-x64.zip -Force
 
+      - name: Verify in-place Windows update
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP "si-patch-test"
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          Copy-Item dist/SIGenerator.exe $target/
+          Copy-Item dist/Qt6Core.dll $target/
+          & ./native/update-local.ps1 -PackagePath ./SI-Generator-Windows-x64.zip -ProjectRoot $target
+          if (-not (Test-Path (Join-Path $target "SIGenerator.exe"))) { throw "Patched EXE missing" }
+          if (-not (Get-ChildItem (Join-Path $target "backups") -Directory -Filter "runtime-*" |
+              Where-Object { Test-Path (Join-Path $_.FullName "SIGenerator.exe") })) {
+            throw "Original EXE backup missing"
+          }
+
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
