@@ -9,6 +9,8 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
+#include <QInputDialog>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QLabel>
 #include <QPainter>
@@ -89,8 +91,22 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
       const int index=paths_.indexOf(value.toString());if(index>=0&&!used.contains(index)){order_.append(index);used.insert(index);}
     }
   for(int i=0;i<structures_.size();++i)if(!used.contains(i))order_.append(i);
+  rebuildDefaultRows();
+  if(settings.value("rows_version").toInt()==1&&settings.value("sources").toArray()==sourceSequence){
+    QVector<QVector<int>> restored;
+    for(const auto& entry:settings.value("rows").toArray()){
+      if(!entry.isArray())continue;
+      QVector<int> row;
+      for(const auto& path:entry.toArray()){
+        const int index=paths_.indexOf(path.toString());
+        if(index>=0)row.append(index);
+      }
+      if(!row.isEmpty())restored.append(row);
+    }
+    if(!restored.isEmpty()){rows_=restored;customRows_=true;}
+  }
   auto* layout=new QVBoxLayout(this);
-  auto* instruction=new QLabel(tr("목록 위→아래 순서 그대로: 첫 RC · TS · PC (3개), 이후 TS · PC (2개).\n구조 선택으로 위치 교환 · 왼쪽 드래그 회전 · Alt+드래그 화면 내 회전 · 오른쪽 드래그 이동 · 휠 확대. 좌우는 직접 지정하세요."),this);
+  auto* instruction=new QLabel(tr("렌더링 한 줄마다 원하는 구조를 선택하세요. 기본 구성은 첫 줄 3개, 이후 2개입니다.\n[새 줄]·[현재 줄에 추가]로 줄을 자유롭게 구성하며 같은 구조도 여러 줄에 사용할 수 있습니다. Youngcraft 스타일과 카메라 설정은 유지됩니다."),this);
   instruction->setWordWrap(true);layout->addWidget(instruction);
   auto* paletteLabel=new QLabel(tr("Youngcraft 저장 스타일: %1").arg(renderStyle_.value("name").toString()),this);paletteLabel->setObjectName("youngcraftStyleName");layout->addWidget(paletteLabel);
   auto* controls=new QHBoxLayout;
@@ -98,6 +114,35 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   indices_=new QCheckBox(tr("원자 번호 표시"),this);indices_->setChecked(settings.value("indices").toBool(false));controls->addWidget(indices_);
   auto* match=new QPushButton(tr("TS 기준 정렬 및 뷰 맞추기"),this);match->setObjectName("alignFigureViews");controls->addWidget(match);
   auto* reset=new QPushButton(tr("뷰 초기화"),this);controls->addWidget(reset);layout->addLayout(controls);
+  auto* lineControls=new QHBoxLayout;
+  auto selectSource=[this](const QString& title)->int{
+    QStringList choices;
+    for(int index=0;index<structures_.size();++index)
+      choices.append(QStringLiteral("%1  [%2: %3]").arg(structures_[index].structureName).arg(index+1).arg(QFileInfo(paths_.value(index)).fileName()));
+    bool accepted=false;
+    const QString name=QInputDialog::getItem(this,title,tr("구조명"),choices,0,false,&accepted);
+    return accepted?choices.indexOf(name):-1;
+  };
+  auto* addPanel=new QPushButton(tr("현재 줄에 구조 추가…"),this);
+  addPanel->setObjectName("addFigurePanel");lineControls->addWidget(addPanel);
+  connect(addPanel,&QPushButton::clicked,this,[this,selectSource]{
+    if(rows_.isEmpty()||rows_[group_].size()>=4){status_->setText(tr("한 줄에는 최대 4개까지 표시할 수 있습니다."));return;}
+    const int chosen=selectSource(tr("현재 Figure 줄에 추가할 구조"));if(chosen<0)return;
+    storeGroup();customRows_=true;rows_[group_].append(chosen);showGroup();
+  });
+  auto* newLine=new QPushButton(tr("새 렌더링 줄 추가…"),this);
+  newLine->setObjectName("appendFigureRow");lineControls->addWidget(newLine);
+  connect(newLine,&QPushButton::clicked,this,[this,selectSource]{
+    const int chosen=selectSource(tr("새 Figure 줄의 첫 구조"));if(chosen<0)return;
+    storeGroup();customRows_=true;rows_.append(QVector<int>{chosen});group_=rows_.size()-1;showGroup();
+  });
+  auto* deleteLine=new QPushButton(tr("현재 줄 삭제"),this);
+  deleteLine->setObjectName("removeFigureRow");lineControls->addWidget(deleteLine);
+  connect(deleteLine,&QPushButton::clicked,this,[this]{
+    if(rows_.size()<=1){status_->setText(tr("적어도 한 줄은 필요합니다."));return;}
+    storeGroup();customRows_=true;rows_.removeAt(group_);group_=std::min(group_,int(rows_.size())-1);showGroup();
+  });
+  lineControls->addStretch();layout->addLayout(lineControls);
   panelWidget_=new QWidget(this);panels_=new QVBoxLayout(panelWidget_);panels_->setContentsMargins(0,0,0,0);layout->addWidget(panelWidget_,1);
   status_=new QLabel(this);status_->setWordWrap(true);layout->addWidget(status_);
   auto* buttons=new QDialogButtonBox(this);
@@ -106,72 +151,111 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   auto* cancel=buttons->addButton(QDialogButtonBox::Cancel);layout->addWidget(buttons);
   connect(cancel,&QPushButton::clicked,this,&QDialog::reject);
   connect(previous_,&QPushButton::clicked,this,[this]{storeGroup();--group_;showGroup();});
-  connect(next_,&QPushButton::clicked,this,[this]{storeGroup();const int start=group_==0?0:3+(group_-1)*2;const int count=group_==0?3:2;if(start+count<order_.size()){++group_;showGroup();}else finish();});
+  connect(next_,&QPushButton::clicked,this,[this]{storeGroup();if(group_+1<rows_.size()){++group_;showGroup();}else finish();});
   connect(indices_,&QCheckBox::toggled,this,[this](bool checked){for(auto* view:viewers_)view->setAtomIndicesVisible(checked);});
   connect(reset,&QPushButton::clicked,this,[this]{changing_=true;for(auto* view:viewers_)view->resetView();changing_=false;});
   connect(match,&QPushButton::clicked,this,[this]{
-    const int start=group_==0?0:3+(group_-1)*2;
     const int reference=group_==0&&viewers_.size()==3?1:0;
-    const auto camera=viewers_[reference]->cameraState();const auto& target=structures_[order_[start+reference]].atoms;
+    if(viewers_.isEmpty())return;
+    const auto camera=viewers_[reference]->cameraState();const auto& target=structures_[rows_[group_][reference]].atoms;
     int failed=0;changing_=true;
-    for(int i=0;i<viewers_.size();++i){auto atoms=structures_[order_[start+i]].atoms;if(i!=reference&&!alignTo(atoms,target))++failed;viewers_[i]->setMolecule(atoms,{});viewers_[i]->setCameraState(camera);}
+    for(int i=0;i<viewers_.size();++i){auto atoms=structures_[rows_[group_][i]].atoms;if(i!=reference&&!alignTo(atoms,target))++failed;viewers_[i]->setMolecule(atoms,{});viewers_[i]->setCameraState(camera);}
     changing_=false;
     status_->setText(failed?tr("원자 수 또는 원소 순서가 다른 구조 %1개는 자동 정렬할 수 없습니다. 카메라 함께 회전을 끄고 직접 뷰를 조정하세요.").arg(failed):tr("TS에 강체 회전 정렬했습니다. 원본 좌표는 보존됩니다."));
   });
   showGroup();
 }
+void FigureSetupDialog::rebuildDefaultRows(){
+  rows_.clear();int start=0;
+  while(start<order_.size()){
+    const int count=std::min(start==0?3:2,int(order_.size())-start);
+    QVector<int> row;for(int i=0;i<count;++i)row.append(order_[start+i]);
+    rows_.append(row);start+=count;
+  }
+}
 void FigureSetupDialog::storeGroup(){
-  const int start=group_==0?0:3+(group_-1)*2;
-  for(int i=0;i<viewers_.size();++i)views_.insert(paths_[order_[start+i]],viewers_[i]->cameraState());
+  if(group_<0||group_>=rows_.size())return;
+  for(int i=0;i<viewers_.size()&&i<rows_[group_].size();++i){
+    const auto camera=viewers_[i]->cameraState();
+    views_.insert(paths_[rows_[group_][i]],camera);
+    if(customRows_)views_.insert(QStringLiteral("row:%1:%2").arg(group_).arg(i),camera);
+  }
 }
 void FigureSetupDialog::showGroup(){
   changing_=true;viewers_.clear();selectors_.clear();
   while(auto* item=panels_->takeAt(0)){if(auto* widget=item->widget()){widget->hide();widget->deleteLater();}delete item;}
   auto* rowWidget=new QWidget(panelWidget_);auto* row=new QHBoxLayout(rowWidget);row->setContentsMargins(0,0,0,0);panels_->addWidget(rowWidget);
   const int start=group_==0?0:3+(group_-1)*2;
-  const int count=std::min(group_==0?3:2,int(order_.size())-start);
+  const int count=group_<rows_.size()?rows_[group_].size():0;
   const int reference=group_==0&&count==3?1:0;
   int failed=0;
   for(int i=0;i<count;++i){
     auto* column=new QWidget(rowWidget);auto* vertical=new QVBoxLayout(column);row->addWidget(column,1);
-    vertical->addWidget(new QLabel(group_==0&&count==3?(i==0?tr("왼쪽 IRC"):i==1?tr("TS"):tr("오른쪽 IRC")):(i==0?tr("TS / 구조 1"):tr("IRC / 구조 2")),column));
+    vertical->addWidget(new QLabel(tr("줄 %1 · 구조 %2").arg(group_+1).arg(i+1),column));
     auto* selector=new QComboBox(column);selector->setObjectName(QString("figureStructure%1").arg(i));
-    // Swaps are available across the entire sequence; no structure is duplicated.
-    for(int index:order_)selector->addItem(structures_[index].structureName,index);
-    selector->setCurrentIndex(start+i);vertical->addWidget(selector);selectors_.append(selector);
+    if(customRows_){
+      for(int index=0;index<structures_.size();++index)selector->addItem(structures_[index].structureName,index);
+      selector->setCurrentIndex(rows_[group_][i]);
+    }else{
+      for(int index:order_)selector->addItem(structures_[index].structureName,index);
+      selector->setCurrentIndex(start+i);
+    }
+    vertical->addWidget(selector);selectors_.append(selector);
+    auto* removePanel=new QPushButton(tr("이 칸 제거"),column);
+    removePanel->setObjectName(QString("removeFigurePanel%1").arg(i));
+    vertical->addWidget(removePanel);
+    connect(removePanel,&QPushButton::clicked,this,[this,i]{
+      if(rows_[group_].size()<=1){status_->setText(tr("한 줄에는 최소 한 구조가 필요합니다."));return;}
+      storeGroup();customRows_=true;rows_[group_].removeAt(i);showGroup();
+    });
     auto* viewer=new MoleculeViewWidget(column);viewer->setObjectName(QString("figureView%1").arg(i));viewer->setCaptureFraming(true);viewer->setMinimumSize(240,280);vertical->addWidget(viewer,1);
-    const int index=order_[start+i];auto atoms=structures_[index].atoms;
-    if(i!=reference&&!alignTo(atoms,structures_[order_[start+reference]].atoms))++failed;
+    const int index=rows_[group_][i];auto atoms=structures_[index].atoms;
+    if(i!=reference&&!alignTo(atoms,structures_[rows_[group_][reference]].atoms))++failed;
     viewer->setRenderStyle(renderStyle_);viewer->setMolecule(atoms,{});viewer->setAtomIndicesVisible(indices_->isChecked());
-    if(views_.contains(paths_[index]))viewer->setCameraState(views_.value(paths_[index]).toObject());
+    const auto slotKey=QStringLiteral("row:%1:%2").arg(group_).arg(i);
+    if(customRows_&&views_.contains(slotKey))viewer->setCameraState(views_.value(slotKey).toObject());
+    else if(views_.contains(paths_[index]))viewer->setCameraState(views_.value(paths_[index]).toObject());
     viewers_.append(viewer);
     connect(selector,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,i,start,selector]{
-      if(changing_)return;storeGroup();const int other=order_.indexOf(selector->currentData().toInt());std::swap(order_[start+i],order_[other]);showGroup();
+      if(changing_)return;storeGroup();
+      const int chosen=selector->currentData().toInt();
+      if(customRows_)rows_[group_][i]=chosen;
+      else {
+        const int other=order_.indexOf(chosen);
+        if(other>=0){std::swap(order_[start+i],order_[other]);rebuildDefaultRows();}
+      }
+      showGroup();
     });
     connect(viewer,&MoleculeViewWidget::cameraChanged,this,[this,viewer]{
       if(changing_||!linked_->isChecked())return;changing_=true;for(auto* other:viewers_)if(other!=viewer)other->setCameraState(viewer->cameraState());changing_=false;
     });
   }
-  previous_->setEnabled(group_>0);const bool last=start+count>=order_.size();next_->setText(last?tr("Figure 적용"):tr("다음 2개"));
-  status_->setText(tr("단계 %1 / %2 · %3개 구조%4").arg(group_+1).arg(order_.size()<=3?1:1+(order_.size()-3+1)/2).arg(count).arg(failed?tr(" · 원자 대응이 다른 구조는 직접 회전하세요."):QString()));
+  previous_->setEnabled(group_>0);const bool last=group_+1>=rows_.size();next_->setText(last?tr("Figure 적용"):tr("다음 줄"));
+  status_->setText(tr("렌더링 줄 %1 / %2 · %3개 구조%4").arg(group_+1).arg(rows_.size()).arg(count).arg(failed?tr(" · 원자 대응이 다른 구조는 직접 회전하세요."):QString()));
   changing_=false;
 }
 QJsonObject FigureSetupDialog::settings() const {
-  QJsonArray order,sources;for(int index:order_)order.append(paths_[index]);for(const auto& path:paths_)sources.append(path);return {{"sequence_version",2},{"sources",sources},{"order",order},{"views",views_},{"indices",indices_->isChecked()},{"render_style",renderStyle_}};
+  QJsonArray order,sources,rows;
+  for(int index:order_)order.append(paths_[index]);
+  for(const auto& path:paths_)sources.append(path);
+  for(const auto& indices:rows_){QJsonArray row;for(int index:indices)row.append(paths_[index]);rows.append(row);}
+  return {{"sequence_version",2},{"sources",sources},{"order",order},{"rows_version",1},{"rows",rows},{"views",views_},{"indices",indices_->isChecked()},{"render_style",renderStyle_}};
 }
 QVector<si::DocumentFigure> FigureSetupDialog::figures() const { return figures_; }
 void FigureSetupDialog::finish(){
-  figures_.clear();const int groups=order_.size()<=3?1:1+(order_.size()-3+1)/2;
+  figures_.clear();const int groups=rows_.size();
   for(int group=0;group<groups;++group){
-    const int start=group==0?0:3+(group-1)*2,count=std::min(group==0?3:2,int(order_.size())-start);
+    const int count=rows_[group].size();
     if(count<=0)continue;
     const int reference=group==0&&count==3?1:0;
     QImage image(QSize(1200*count,1100),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);QPainter painter(&image);
     si::DocumentFigure figure;
     for(int i=0;i<count;++i){
-      const int index=order_[start+i];auto atoms=structures_[index].atoms;
-      if(i!=reference)alignTo(atoms,structures_[order_[start+reference]].atoms);
-      MoleculeViewWidget view;view.setRenderStyle(renderStyle_);view.setMolecule(atoms,{});view.setAtomIndicesVisible(indices_->isChecked());view.setCameraState(views_.value(paths_[index]).toObject());
+      const int index=rows_[group][i];auto atoms=structures_[index].atoms;
+      if(i!=reference)alignTo(atoms,structures_[rows_[group][reference]].atoms);
+      MoleculeViewWidget view;view.setRenderStyle(renderStyle_);view.setMolecule(atoms,{});view.setAtomIndicesVisible(indices_->isChecked());
+      const auto slotKey=QStringLiteral("row:%1:%2").arg(group).arg(i);
+      view.setCameraState(customRows_&&views_.contains(slotKey)?views_.value(slotKey).toObject():views_.value(paths_[index]).toObject());
       painter.drawImage(i*1200,0,view.renderMolecule());
       const auto label=si::structureLabelMarkup(structures_[index].structureName);
       QTextDocument text;text.setDocumentMargin(0);text.setTextWidth(1160);
