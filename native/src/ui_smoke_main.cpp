@@ -26,6 +26,7 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QLineEdit>
+#include <QInputDialog>
 #include <QTextEdit>
 #include <QLabel>
 #include <QTemporaryDir>
@@ -204,6 +205,53 @@ struct Phase1Smoke {
     QString error;const auto docx=folder.filePath("grouped.docx");ok&=check(DocxWriter::writeDocument(docx,window.documentModel_,&error),"reaction grouped SI generated");QFile output(docx);if(output.open(QIODevice::ReadOnly)){const auto bytes=output.readAll();ok&=check(bytes.indexOf("r:embed=\"rIdFigure1\"")<bytes.indexOf("Reaction A: Relative")&&bytes.indexOf("Reaction A: Relative")<bytes.indexOf("r:embed=\"rIdFigure2\"")&&bytes.indexOf("r:embed=\"rIdFigure2\"")<bytes.indexOf("Reaction B: Relative"),"DOCX places each reaction Figure before its own tables");}else ok=false;
     const auto project=folder.filePath("workspace.si_project.json");ok&=check(window.saveProjectToPath(project),"reaction workspace saves");ProjectState loaded;ok&=check(ProjectStore::load(project,&loaded,&error)&&loaded.reactionStages==window.reactionStages_,"reaction order and Figure settings roundtrip");
     if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){window.chooseStageScope(0);window.grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/reaction-workspace.png");}
+    return ok;
+  }
+
+  static bool bulkTitlesAndStageContext(const QString& fixture){
+    MainWindow window;QTemporaryDir directory;bool ok=true;
+    QStringList paths;
+    for(int i=0;i<3;++i){const auto path=directory.filePath(QString("structure-%1.out").arg(i));QFile::copy(fixture,path);paths.append(path);}
+    window.parsePaths(paths,false,false);if(!waitForImport(window))return false;
+    window.reactionStages_={
+      QJsonObject{{"name","Initial"},{"files",QJsonArray{paths[0],paths[1],paths[2]}}},
+      QJsonObject{{"name","Other stage"},{"files",QJsonArray{paths[0]}}}
+    };
+    window.refreshStageNavigation();window.chooseStageScope(0);
+    ok&=check(window.stageNavigation_->contextMenuPolicy()==Qt::CustomContextMenu,"reaction navigation offers right-click context menu");
+    auto* grid=window.stageGrid_;
+    grid->setCurrentCell(1,0);
+    QApplication::clipboard()->setText("^{3}TS_{1}\nIntermediate B");
+    QTest::keyClick(grid,Qt::Key_V,Qt::ControlModifier);
+    ok&=check(window.structureLabels()[1]=="^{3}TS_{1}"&&window.structureLabels()[2]=="Intermediate B"&&window.sourcePaths()==paths,"one-column Ctrl+V updates labels without changing output files");
+    grid->setCurrentCell(0,0);QApplication::clipboard()->setText("Reactant with spaces");
+    window.findChild<QPushButton*>("pasteStructureTitles")->click();
+    ok&=check(window.structureLabels()[0]=="Reactant with spaces","explicit paste titles button accepts one title");
+    const auto before=window.structureLabels();
+    grid->setCurrentCell(2,0);QApplication::clipboard()->setText("Overflow one\nOverflow two");
+    QTest::keyClick(grid,Qt::Key_V,Qt::ControlModifier);
+    ok&=check(window.structureLabels()==before,"out-of-range one-column paste leaves all labels unchanged");
+    window.stageNameEdit_->setFocus();window.stageNameEdit_->selectAll();
+    QTest::keyClicks(window.stageNameEdit_,"First  stage (TS)  ");
+    ok&=check(window.reactionStages_[0].toObject()["name"].toString()=="First  stage (TS)  ","reaction stage name preserves repeated and trailing spaces");
+    QTimer::singleShot(0,&window,[&]{
+      auto* dialog=qobject_cast<QInputDialog*>(QApplication::activeModalWidget());
+      ok&=check(dialog!=nullptr,"right-click rename dialog appears");
+      if(dialog){dialog->setTextValue("Renamed  step 1  ");dialog->accept();}
+    });
+    window.renameReactionStage(1);
+    ok&=check(window.reactionStages_[1].toObject()["name"].toString()=="Renamed  step 1  ","rename preserves exact spacing and targets chosen stage");
+    QTimer::singleShot(0,&window,[&]{
+      auto* message=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+      ok&=check(message!=nullptr,"delete confirmation appears");
+      if(message&&message->button(QMessageBox::Yes))message->button(QMessageBox::Yes)->click();
+    });
+    window.removeReactionStage(1);
+    ok&=check(window.reactionStages_.size()==1&&window.sourcePaths()==paths,"stage deletion retains Gaussian structures");
+    const auto project=directory.filePath("bulk-titles.si_project.json");
+    ok&=check(window.saveProjectToPath(project),"bulk titles and stage names saved");
+    ProjectState loaded;QString error;
+    ok&=check(ProjectStore::load(project,&loaded,&error)&&loaded.structureNames==window.structureLabels().join('\n')&&loaded.reactionStages.first().toObject()["name"].toString()=="First  stage (TS)  ","titles and stage name spacing survive project save");
     return ok;
   }
   static bool reactionStageNames(const QString& fixture){
@@ -1019,6 +1067,7 @@ int main(int argc,char** argv){
   ok&=Phase1Smoke::projectManagerWorkflow();
   ok&=Phase1Smoke::portableProject(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::reactionStageNames(QString::fromLocal8Bit(argv[1]));
+  ok&=Phase1Smoke::bulkTitlesAndStageContext(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::reactionStageWorkflow(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::appendFiles(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::labelledFileImports(QString::fromLocal8Bit(argv[1]));
