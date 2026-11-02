@@ -68,7 +68,7 @@ bool alignTo(std::vector<si::Atom>& moving, const std::vector<si::Atom>& target)
         for(int k=0;k<4;++k) {const double kp=v[k][p],kq=v[k][q];v[k][p]=c*kp-t*kq;v[k][q]=t*kp+c*kq;}
     }
     int best=0;for(int i=1;i<4;++i) if(n[i][i]>n[best][best]) best=i;
-    QQuaternion rotation(float(v[0][best]),float(v[1][best]),float(v[2][best]),float(v[3][best]));
+    QQuaternion rotation{float(v[0][best]),float(v[1][best]),float(v[2][best]),float(v[3][best])};
     rotation.normalize();
     for(auto& atom:moving) {
         const auto point=b+rotation.rotatedVector(QVector3D(atom.xyz[0],atom.xyz[1],atom.xyz[2])-a);

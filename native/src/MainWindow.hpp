@@ -13,6 +13,8 @@
 class DocumentPreviewWidget;
 class MoleculeViewWidget;
 class QButtonGroup;
+class QSplitter;
+class QTabWidget;
 class QStackedWidget;
 class QCheckBox;
 class QComboBox;
@@ -52,6 +54,7 @@ private:
   QWidget* createStructureWorkspace(QWidget* parent);
   void refreshStageNavigation();
   void refreshStageWorkspace();
+  void updateStructureStatusCells();
   void refreshScopedPreview();
   void chooseStageScope(int stage);
   void addReactionStage(bool duplicate=false);
@@ -170,6 +173,9 @@ private:
   QWidget* energySection_{};
   QWidget* spinSection_{};
   QWidget* geometrySection_{};
+  QSplitter* mainSplitter_{};
+  QTabWidget* workspaceTabs_{};
+  QByteArray workspaceSplitState_;
   MoleculeViewWidget* moleculeView_{};
   DocumentPreviewWidget* preview_{};
   QTimer* previewTimer_{};

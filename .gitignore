@@ -38,3 +38,7 @@
 .idea/
 __pycache__/
 *.pyc
+
+# Versioned Windows distributions
+/dist/
+/SI-Generator-Windows-x64.zip

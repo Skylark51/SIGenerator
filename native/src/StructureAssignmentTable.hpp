@@ -28,9 +28,19 @@ public:
 
 class StructureAssignmentTable final : public QTableWidget {
 public:
-  explicit StructureAssignmentTable(QWidget* parent=nullptr):QTableWidget(0,2,parent){
-    setObjectName("reactionStageMembers");setHorizontalHeaderLabels({tr("구조명"),tr("Output 파일")});
-    horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);verticalHeader()->setDefaultSectionSize(34);
+  explicit StructureAssignmentTable(QWidget* parent=nullptr,bool showMetadata=false):QTableWidget(0,showMetadata?7:2,parent){
+    setObjectName("reactionStageMembers");
+    if(showMetadata){
+      setHorizontalHeaderLabels({tr("구조명"),tr("Output 파일"),tr("M"),tr("Freq"),tr("SPE"),tr("Imag"),tr("상태")});
+      horizontalHeader()->setSectionResizeMode(0,QHeaderView::Stretch);
+      horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+      for(int column=2;column<7;++column)horizontalHeader()->setSectionResizeMode(column,QHeaderView::ResizeToContents);
+      setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    }else{
+      setHorizontalHeaderLabels({tr("구조명"),tr("Output 파일")});
+      horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    }
+    verticalHeader()->setDefaultSectionSize(34);
     setItemDelegateForColumn(0,new StructureNameDelegate(this));setSelectionMode(QAbstractItemView::ExtendedSelection);
     setAlternatingRowColors(true);setMinimumHeight(200);
   }

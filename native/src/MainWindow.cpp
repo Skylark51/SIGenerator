@@ -53,6 +53,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTextEdit>
@@ -143,7 +144,7 @@ QGroupBox* section(const QString& title,QWidget* parent,bool collapsible=false){
 MainWindow::MainWindow(){
   setObjectName(QStringLiteral("mainWindow"));setAcceptDrops(true);setWindowTitle(tr("SI Generator — 네이티브 (Native)"));resize(1480,900);
   auto* fileMenu=menuBar()->addMenu(tr("파일 (File)"));fileMenu->addAction(tr("Gaussian 파일 열기 (Open Files)…"),QKeySequence::Open,this,&MainWindow::chooseFiles);fileMenu->addAction(tr("고급 · 단계 일괄 구성…"),this,&MainWindow::editReactionStages);fileMenu->addAction(tr("프로젝트 관리…"),this,&MainWindow::projectManagerRequested);fileMenu->addAction(tr("프로젝트 열기 (Open Project)…"),this,&MainWindow::openProject);fileMenu->addAction(tr("프로젝트 저장 (Save Project)…"),QKeySequence::Save,this,&MainWindow::saveProject);
-  auto* splitter=new QSplitter(Qt::Horizontal,this);splitter->setObjectName(QStringLiteral("mainSplitter"));splitter->addWidget(createStageNavigation());splitter->addWidget(createInputPanel());splitter->addWidget(createWorkspace());splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setStretchFactor(2,1);splitter->setSizes({210,635,635});
+  auto* splitter=new QSplitter(Qt::Horizontal,this);mainSplitter_=splitter;splitter->setObjectName(QStringLiteral("mainSplitter"));splitter->addWidget(createStageNavigation());splitter->addWidget(createInputPanel());splitter->addWidget(createWorkspace());splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setStretchFactor(2,1);splitter->setSizes({210,635,635});
   auto* workspaceScroll=new QScrollArea(this);workspaceScroll->setObjectName("workspaceScroll");workspaceScroll->setWidgetResizable(true);workspaceScroll->setFrameShape(QFrame::NoFrame);workspaceScroll->setWidget(splitter);setCentralWidget(workspaceScroll);createQuickToolbar();
   previewTimer_=new QTimer(this);previewTimer_->setSingleShot(true);previewTimer_->setInterval(220);connect(previewTimer_,&QTimer::timeout,this,&MainWindow::refreshDocumentModel);connectPreviewInputs();
   auto settings=windowSettings();baseDirectory_->setText(settings.value(QStringLiteral("baseDirectory")).toString());restoreGeometry(settings.value(QStringLiteral("geometry")).toByteArray());
@@ -238,17 +239,55 @@ QWidget* MainWindow::createInputPanel(){
   inputScroll_=qobject_cast<QScrollArea*>(inputPages_->widget(0));delete content;return inputPages_;
 }
 
-QWidget* MainWindow::createWorkspace(){auto* panel=new QWidget(this);auto* layout=new QVBoxLayout(panel);layout->setContentsMargins(6,6,6,6);auto* split=new QSplitter(Qt::Vertical,panel);split->setObjectName(QStringLiteral("workspaceSplitter"));auto* moleculeBox=new QGroupBox(tr("분자 렌더링 (Molecular Viewer)"),split);auto* moleculeLayout=new QVBoxLayout(moleculeBox);moleculeView_=new MoleculeViewWidget(moleculeBox);moleculeLayout->addWidget(moleculeView_,1);interactionInfo_=new QLabel(tr("원자를 클릭하여 정보를 확인하세요. (Click an atom for details.)"),moleculeBox);interactionInfo_->setWordWrap(true);moleculeLayout->addWidget(interactionInfo_);auto* previewBox=new QGroupBox(tr("SI 미리보기 (SI Preview)"),split);auto* previewLayout=new QVBoxLayout(previewBox);preview_=new DocumentPreviewWidget(previewBox);previewScope_=new QComboBox(previewBox);previewScope_->setObjectName("previewScope");previewScope_->addItem(tr("현재 반응 미리보기"),"current");previewScope_->addItem(tr("전체 SI 미리보기"),"all");previewLayout->addWidget(previewScope_);previewLayout->addWidget(preview_);connect(previewScope_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{refreshScopedPreview();});split->addWidget(moleculeBox);split->addWidget(previewBox);split->setStretchFactor(0,40);split->setStretchFactor(1,60);split->setSizes({330,540});layout->addWidget(split,1);status_=new QLabel(tr(".out 또는 .log 파일을 끌어 놓으세요. (Drop Gaussian files here.)"),panel);status_->setWordWrap(true);layout->addWidget(status_);connect(moleculeView_,&MoleculeViewWidget::atomPicked,this,[this](int atom,const QString& element,double spin,bool found){interactionInfo_->setText(found?tr("%1 %2 | Spin density = %3").arg(element).arg(atom).arg(spin,0,'f',3):tr("%1 %2 | Spin density = N/A").arg(element).arg(atom));});connect(moleculeView_,&MoleculeViewWidget::geometrySelectionChanged,this,&MainWindow::updateGeometryFeedback);return panel;}
+QWidget* MainWindow::createWorkspace(){
+  auto* panel=new QWidget(this);
+  auto* layout=new QVBoxLayout(panel);layout->setContentsMargins(6,6,6,6);
+  auto* controls=new QHBoxLayout;controls->addWidget(new QLabel(tr("작업 미리보기"),panel));controls->addStretch();
+  auto* focus=new QToolButton(panel);focus->setObjectName("focusWorkspace");
+  focus->setText(tr("⛶ 크게 보기"));focus->setCheckable(true);
+  focus->setToolTip(tr("왼쪽 패널을 접어 뷰어를 크게 표시합니다."));
+  controls->addWidget(focus);layout->addLayout(controls);
+  workspaceTabs_=new QTabWidget(panel);workspaceTabs_->setObjectName("workspaceTabs");
+  workspaceTabs_->setDocumentMode(true);
+  auto* molecularPage=new QWidget(workspaceTabs_);auto* moleculeLayout=new QVBoxLayout(molecularPage);
+  moleculeView_=new MoleculeViewWidget(molecularPage);moleculeLayout->addWidget(moleculeView_,1);
+  interactionInfo_=new QLabel(tr("원자를 클릭하여 정보를 확인하세요. (Click an atom for details.)"),molecularPage);
+  interactionInfo_->setWordWrap(true);moleculeLayout->addWidget(interactionInfo_);
+  workspaceTabs_->addTab(molecularPage,tr("3D 분자 뷰어"));
+  auto* previewPage=new QWidget(workspaceTabs_);auto* previewLayout=new QVBoxLayout(previewPage);
+  previewScope_=new QComboBox(previewPage);previewScope_->setObjectName("previewScope");
+  previewScope_->addItem(tr("현재 반응 미리보기"),"current");
+  previewScope_->addItem(tr("전체 SI 미리보기"),"all");
+  previewLayout->addWidget(previewScope_);preview_=new DocumentPreviewWidget(previewPage);
+  previewLayout->addWidget(preview_,1);workspaceTabs_->addTab(previewPage,tr("SI 문서 미리보기"));
+  layout->addWidget(workspaceTabs_,1);
+  connect(previewScope_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{refreshScopedPreview();});
+  connect(focus,&QToolButton::toggled,this,[this,focus](bool active){
+    if(!mainSplitter_)return;
+    if(active){workspaceSplitState_=mainSplitter_->saveState();mainSplitter_->setSizes({0,0,std::max(1,mainSplitter_->width())});focus->setText(tr("기본 화면"));}
+    else{if(!workspaceSplitState_.isEmpty())mainSplitter_->restoreState(workspaceSplitState_);focus->setText(tr("⛶ 크게 보기"));}
+  });
+  status_=new QLabel(tr(".out 또는 .log 파일을 끌어 놓으세요. (Drop Gaussian files here.)"),panel);
+  status_->setWordWrap(true);layout->addWidget(status_);
+  connect(moleculeView_,&MoleculeViewWidget::atomPicked,this,[this](int atom,const QString& element,double spin,bool found){
+    interactionInfo_->setText(found?tr("%1 %2 | Spin density = %3").arg(element).arg(atom).arg(spin,0,'f',3):tr("%1 %2 | Spin density = N/A").arg(element).arg(atom));
+  });
+  connect(moleculeView_,&MoleculeViewWidget::geometrySelectionChanged,this,&MainWindow::updateGeometryFeedback);
+  return panel;
+}
 
 QWidget* MainWindow::createQuickToolbar(){
   auto* bar=new QToolBar(tr("작업 도구"),this);bar->setObjectName("quickToolbar");bar->setMovable(false);bar->setFloatable(false);bar->setAllowedAreas(Qt::TopToolBarArea);bar->setIconSize(QSize(24,24));addToolBar(Qt::TopToolBarArea,bar);
   auto add=[this,bar](const QString& name,const QString& text,const QIcon& icon,auto slot){
     auto* button=new QToolButton(bar);button->setObjectName(name);button->setText(text);button->setAccessibleName(text);button->setToolTip(text);button->setIcon(icon);button->setIconSize(QSize(24,24));button->setToolButtonStyle(Qt::ToolButtonIconOnly);button->setFixedSize(42,42);connect(button,&QToolButton::clicked,this,slot);bar->addWidget(button);return button;
   };
-  auto* manage=new QToolButton(bar);manage->setObjectName("projectManagerButton");manage->setText(tr("프로젝트 관리"));manage->setToolTip(tr("프로젝트를 저장하고 관리 창으로 돌아가기"));connect(manage,&QToolButton::clicked,this,&MainWindow::projectManagerRequested);bar->addWidget(manage);auto* brand=new QLabel("  SI Generator  ",bar);brand->setObjectName("toolbarBrand");bar->addWidget(brand);bar->addSeparator();
-  add("addFilesAction",tr("Gaussian 파일 추가 (Ctrl+O)"),style()->standardIcon(QStyle::SP_FileDialogNewFolder),[this]{chooseFiles();});
+  auto* manage=new QToolButton(bar);manage->setObjectName("projectManagerButton");manage->setText(tr("프로젝트 관리"));manage->setToolTip(tr("프로젝트를 저장하고 관리 창으로 돌아가기"));connect(manage,&QToolButton::clicked,this,&MainWindow::projectManagerRequested);bar->addWidget(manage);auto* brand=new QLabel("  SI Generator  ",bar);brand->setObjectName("toolbarBrand");bar->addWidget(brand);bar->addSeparator();bar->addWidget(new QLabel(tr("파일  "),bar));
+  auto* addFiles=add("addFilesAction",tr("Gaussian 파일 추가 (Ctrl+O)"),style()->standardIcon(QStyle::SP_FileDialogNewFolder),[this]{chooseFiles();});
+  addFiles->setText(tr("파일 추가"));addFiles->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);addFiles->setFixedWidth(105);
   add("openProjectAction",tr("프로젝트 열기"),style()->standardIcon(QStyle::SP_DirOpenIcon),[this]{openProject();});
-  add("saveProjectAction",tr("프로젝트 저장 (Ctrl+S)"),style()->standardIcon(QStyle::SP_DialogSaveButton),[this]{saveProject();});bar->addSeparator();
+  auto* save=add("saveProjectAction",tr("프로젝트 저장 (Ctrl+S)"),style()->standardIcon(QStyle::SP_DialogSaveButton),[this]{saveProject();});
+  save->setText(tr("저장"));save->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);save->setFixedWidth(90);
+  bar->addSeparator();bar->addWidget(new QLabel(tr("설정  "),bar));
   navigation_=new QButtonGroup(this);navigation_->setExclusive(true);
   const QStringList names={"structures","energy","spin","geometry","document"};
   const QStringList labels={tr("구조와 파일"),tr("에너지와 기준점"),tr("스핀 밀도"),tr("거리·각도·이면각"),tr("문서와 출력")};
@@ -262,11 +301,13 @@ QWidget* MainWindow::createQuickToolbar(){
     });
     button->setCheckable(true);button->setProperty("navigation",true);button->setShortcut(QKeySequence(QString("Alt+%1").arg(i+1)));navigation_->addButton(button,i);
   }
-  navigation_->button(0)->setChecked(true);bar->addSeparator();
+  navigation_->button(0)->setChecked(true);bar->addSeparator();bar->addWidget(new QLabel(tr("분자  "),bar));
   auto* indices=add("toggleAtomIndices",tr("원자 번호 표시 / 숨기기"),navigationIcon("indices",QColor("#746197")),[this]{moleculeView_->setAtomIndicesVisible(!moleculeView_->atomIndicesVisible());});indices->setCheckable(true);indices->setChecked(moleculeView_->atomIndicesVisible());
   add("resetMolecularView",tr("분자 보기 초기화"),navigationIcon("reset",QColor("#746197")),[this]{moleculeView_->resetView();});
-  add("prepareFiguresAction",tr("분자 Figure 뷰 설정"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});bar->addSeparator();
-  add("generateSiButton",tr("전체 SI DOCX 생성"),navigationIcon("si",QColor("#087e8b")),[this]{exportSiDocument();});
+  add("prepareFiguresAction",tr("분자 Figure 뷰 설정"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});
+  bar->addSeparator();bar->addWidget(new QLabel(tr("내보내기  "),bar));
+  auto* generateSi=add("generateSiButton",tr("전체 SI DOCX 생성"),navigationIcon("si",QColor("#087e8b")),[this]{exportSiDocument();});
+  generateSi->setText(tr("SI 생성"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(110);
   add("generateCoordinatesButton",tr("전체 구조 좌표 DOCX 생성"),navigationIcon("coordinates",QColor("#087e8b")),[this]{exportCoordinatesDocument();});
   add("generateXyzButton",tr("전체 구조 XYZ 파일 생성"),navigationIcon("xyz",QColor("#087e8b")),[this]{exportXyzDocument();});
   auto* currentSection=new QLabel(labels[0],bar);currentSection->setObjectName("currentSectionLabel");bar->addWidget(currentSection);
@@ -492,6 +533,7 @@ void MainWindow::refreshPreflight(){
     for(int column=1;column<7;++column){files_->item(row,column)->setText(values[column-1]);files_->item(row,column)->setToolTip((errors+warnings).join('\n'));}
     files_->item(row,6)->setData(Qt::UserRole,errors);
   }
+  updateStructureStatusCells();
 }
 QStringList MainWindow::preflightErrors() const{
   QStringList errors;

@@ -8,6 +8,7 @@
 #include "si/GaussianParser.hpp"
 #include <QApplication>
 #include <QStackedWidget>
+#include <QTabWidget>
 #include <QSplitter>
 #include <QToolBar>
 #include <QStyleFactory>
@@ -188,7 +189,7 @@ struct Phase1Smoke {
   static bool reactionWorkspace(const QString& fixture){
     MainWindow window;window.show();QTemporaryDir folder;bool ok=true;QStringList paths;for(int i=0;i<6;++i){const auto path=folder.filePath(QString("workspace-%1.log").arg(i));QFile::copy(fixture,path);paths.append(path);}window.parsePaths({paths[0],paths[1],paths[2],paths[3]},false,false);if(!waitForImport(window))return false;
     window.reactionStages_={QJsonObject{{"name","Reaction A"},{"files",QJsonArray{paths[2],paths[0]}},{"reference",paths[0]}},QJsonObject{{"name","Reaction B"},{"files",QJsonArray{paths[0],paths[1]}},{"reference",paths[1]}}};window.activeStage_=0;window.refreshDocumentModel();
-    ok&=check(!window.files_->isVisible()&&window.stageGrid_->columnCount()==2&&window.stageNavigation_->count()==2&&window.stageGrid_->rowCount()==2&&window.stageGrid_->item(0,1)->text()=="workspace-2.log","persistent stage workspace filters structures and hides extraction columns");
+    ok&=check(!window.files_->isVisible()&&window.stageGrid_->columnCount()==7&&window.stageNavigation_->count()==2&&window.stageGrid_->rowCount()==2&&window.stageGrid_->item(0,1)->text()=="workspace-2.log","persistent stage workspace filters structures and hides extraction columns");
     const auto master=window.sourcePaths();window.stageGrid_->setCurrentCell(0,0);window.moveStageStructure(1);auto first=window.reactionStages_[0].toObject();ok&=check(first["files"].toArray()==QJsonArray({paths[0],paths[2]})&&window.sourcePaths()==master&&window.reactionStages_[1].toObject()["files"].toArray()==QJsonArray({paths[0],paths[1]}),"structure order is independent for each reaction");
     window.refreshDocumentModel();window.chooseStageScope(1);auto* selector=window.preview_->findChild<QComboBox*>("previewTableSelector");bool onlyB=selector->count()>1;for(int i=1;i<selector->count();++i)onlyB&=selector->itemText(i).contains("Reaction B");ok&=check(onlyB,"current reaction preview includes only that reaction tables");window.previewScope_->setCurrentIndex(1);ok&=check(selector->count()==window.documentModel_.tables.size()+1,"whole SI preview retains all reaction tables");
     window.previewScope_->setCurrentIndex(0);window.stageGrid_->setCurrentCell(0,0);window.stageGrid_->item(0,0)->setText("5DRC-TS");window.refreshDocumentModel();ok&=check(window.structureLabels()[0]=="5DRC-TS"&&window.reactionStages_[0].toObject()["files"].toArray().contains(paths[0]),"inline name edits are shared without moving structures");
@@ -293,6 +294,25 @@ struct Phase1Smoke {
     bool ok=true;
     auto* bar=window.findChild<QToolBar*>("quickToolbar");auto* split=window.findChild<QSplitter*>("mainSplitter");
     ok&=check(bar&&window.toolBarArea(bar)==Qt::TopToolBarArea&&split&&split->count()==3,"top toolbar releases the right workspace column");
+    auto* tabs=window.findChild<QTabWidget*>("workspaceTabs");
+    auto* focus=window.findChild<QToolButton*>("focusWorkspace");
+    ok&=check(tabs&&tabs->count()==2&&focus,"tabbed viewer and focus action are available");
+    if(tabs){
+      tabs->setCurrentIndex(1);QCoreApplication::processEvents();
+      ok&=check(window.preview_->isVisible(),"SI preview tab displays the document");
+      tabs->setCurrentIndex(0);QCoreApplication::processEvents();
+      ok&=check(window.moleculeView_->isVisible(),"molecule tab displays the viewer");
+    }
+    if(focus){
+      focus->click();QCoreApplication::processEvents();
+      ok&=check(focus->isChecked()&&split->sizes()[2]>split->sizes()[1],"focus mode expands the workspace");
+      focus->click();QCoreApplication::processEvents();
+      ok&=check(!focus->isChecked()&&split->widget(0)->isVisible(),"focus mode restores navigation");
+    }
+    for(const auto& name:{"addFilesAction","saveProjectAction","generateSiButton"}){
+      auto* action=window.findChild<QToolButton*>(name);
+      ok&=check(action&&action->toolButtonStyle()==Qt::ToolButtonTextBesideIcon,"important actions include text labels");
+    }
     const QStringList names={"structures","energy","spin","geometry","document"};
     for(int i=0;i<names.size();++i){
       auto* button=window.findChild<QToolButton*>("navigate_"+names[i]);
@@ -922,8 +942,8 @@ int main(int argc,char** argv){
     window.resize(1050,720);QTest::qWait(80);window.grab().save(dir+"/compact.png");window.resize(1480,900);window.findChild<QToolButton*>("navigate_structures")->click();
   }
   const si::GaussianParser parser;const auto result=parser.parse(std::filesystem::path(QString::fromLocal8Bit(argv[1]).toStdWString()));ok&=check(result.finalGeometry.size()==3,"renderer geometry");viewer->setMolecule({result.finalGeometry.front()},{result.spinDensities.front()});viewer->resize(500,350);viewer->show();viewer->setInteractionMode(MoleculeViewWidget::InteractionMode::SpinDensity);QCoreApplication::processEvents();QSignalSpy atomSpy(viewer,&MoleculeViewWidget::atomPicked);QTest::mouseClick(viewer,Qt::LeftButton,Qt::NoModifier,viewer->rect().center());ok&=check(atomSpy.count()==1,"atom picking and spin signal");viewer->setInteractionMode(MoleculeViewWidget::InteractionMode::Geometry);QSignalSpy geometrySpy(viewer,&MoleculeViewWidget::geometrySelectionChanged);QTest::mouseClick(viewer,Qt::LeftButton,Qt::NoModifier,viewer->rect().center());ok&=check(geometrySpy.count()>=1&&!viewer->selectedAtoms().isEmpty(),"geometry selection");
-  si::SIDocumentModel longDocument;for(int i=0;i<120;++i)longDocument.figureCaptions.append(QStringLiteral("Long preview row %1").arg(i));preview->setDocumentModel(longDocument);QTest::qWait(30);auto* browser=preview->findChild<QTextBrowser*>();auto* scroll=browser?browser->verticalScrollBar():nullptr;ok&=check(scroll&&scroll->maximum()>0,"preview is scrollable");if(scroll&&scroll->maximum()>0){scroll->setValue(scroll->maximum()/2);const int before=scroll->value();longDocument.title=QStringLiteral("Updated title");preview->setDocumentModel(longDocument);QTest::qWait(30);ok&=check(scroll->value()>0&&std::abs(scroll->value()-before)<std::max(20,scroll->maximum()/10),"preview scroll position preserved after refresh");}
-  ok&=Phase1Smoke::run(window);
+  si::SIDocumentModel longDocument;for(int i=0;i<120;++i)longDocument.figureCaptions.append(QStringLiteral("Long preview row %1").arg(i));window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(1);QCoreApplication::processEvents();preview->setDocumentModel(longDocument);QTest::qWait(30);auto* browser=preview->findChild<QTextBrowser*>();auto* scroll=browser?browser->verticalScrollBar():nullptr;ok&=check(scroll&&scroll->maximum()>0,"preview is scrollable");if(scroll&&scroll->maximum()>0){scroll->setValue(scroll->maximum()/2);const int before=scroll->value();longDocument.title=QStringLiteral("Updated title");preview->setDocumentModel(longDocument);QTest::qWait(30);ok&=check(scroll->value()>0&&std::abs(scroll->value()-before)<std::max(20,scroll->maximum()/10),"preview scroll position preserved after refresh");}
+  window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(0);QCoreApplication::processEvents();ok&=Phase1Smoke::run(window);
   ok&=Phase1Smoke::reactionWorkspace(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::projectManagerWorkflow();
   ok&=Phase1Smoke::reactionStageNames(QString::fromLocal8Bit(argv[1]));
