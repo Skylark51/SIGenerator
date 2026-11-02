@@ -136,7 +136,8 @@ void MainWindow::updateStructureStatusCells(){
         else if(value=="Error")value=tr("✕ 오류");
         else if(value.isEmpty())value=tr("대기 중");
         const QColor color=value.contains(tr("오류"))?QColor("#b42318"):
-                           value.contains(tr("주의"))?QColor("#9a6700"):QColor("#245b43");
+                           value.contains(tr("주의"))?QColor("#9a6700"):
+                           value.contains(tr("대기"))?QColor("#637083"):QColor("#245b43");
         target->setForeground(QBrush(color));
       }
       if(target->text()!=value)target->setText(value);
