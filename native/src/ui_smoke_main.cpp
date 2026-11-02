@@ -292,9 +292,12 @@ struct Phase1Smoke {
     const auto project=temp.filePath("portable.si_project.json");
     ok&=check(source.saveProjectToPath(project),"portable project saved");
     ProjectState stored;QString error;
-    ok&=check(ProjectStore::load(project,&stored,&error)&&
-      stored.gaussianSnapshots.contains(primary)&&
-      stored.gaussianSnapshots.contains(singlePoint),"both frequency and SPE are embedded");
+    const bool saved=ProjectStore::load(project,&stored,&error);
+    const auto linkedSpe=stored.pairedSnapshotPaths.value(primary).toString();
+    ok&=check(saved&&stored.gaussianSnapshots.contains(primary)&&
+      QFileInfo(linkedSpe).absoluteFilePath()==QFileInfo(singlePoint).absoluteFilePath()&&
+      stored.gaussianSnapshots.contains(linkedSpe),
+      "both frequency and SPE are embedded");
     ok&=check(QFile::remove(primary)&&QFile::remove(singlePoint),"original Gaussian files removed");
     MainWindow reopened;
     ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"offline project reopens");
