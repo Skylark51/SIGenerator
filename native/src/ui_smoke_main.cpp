@@ -488,6 +488,26 @@ struct Phase1Smoke {
     window.parsePaths({});window.fileNames_->clear();
     QApplication::clipboard()->setText(QString("5B-TS\t%1\r\n5C\t%2").arg(tsName,ircName));window.findChild<QGroupBox*>("importControls")->setChecked(true);window.fileNames_->paste();window.addNamedFiles();
     ok&=check(waitForImport(window)&&window.sourcePaths()==QStringList({folder.filePath(tsName),folder.filePath(ircName)})&&window.structureLabels()==QStringList({"5B-TS","5C"})&&!window.fileNamesInfo_->text().contains("파일 없음"),"screenshot-shaped Excel paste preserves TS/IRC labels across automatic endpoint discovery");
+    // Real Excel sends text/html as well as text/plain. QTextEdit must choose
+    // the tab-delimited plain text instead of flattening the HTML table.
+    window.parsePaths({});window.fileNames_->clear();
+    auto* excelMime=new QMimeData;
+    excelMime->setHtml(QString("<table><tr><td>5B-TS</td><td>%1</td></tr><tr><td>5C</td><td>%2</td></tr></table>").arg(tsName,ircName));
+    excelMime->setText(QString("5B-TS\t%1\r\n5C\t%2").arg(tsName,ircName));
+    QApplication::clipboard()->setMimeData(excelMime);
+    window.fileNames_->paste();
+    ok&=check(window.fileNames_->toPlainText().contains('\t'),"rich Excel clipboard preserves tab-delimited columns");
+    window.addNamedFiles();
+    ok&=check(waitForImport(window)&&window.sourcePaths()==QStringList({folder.filePath(tsName),folder.filePath(ircName)})
+      &&window.structureLabels()==QStringList({"5B-TS","5C"})&&!window.fileNamesInfo_->text().contains("파일 없음"),
+      "two-column Excel HTML and text clipboard imports both labelled files");
+    // Also accept rows flattened into label newline filename pairs.
+    window.parsePaths({});
+    window.fileNames_->setPlainText(QString("5B-TS\n%1\n5C\n%2").arg(tsName,ircName));
+    window.addNamedFiles();
+    ok&=check(waitForImport(window)&&window.sourcePaths()==QStringList({folder.filePath(tsName),folder.filePath(ircName)})
+      &&window.structureLabels()==QStringList({"5B-TS","5C"})&&!window.fileNamesInfo_->text().contains("파일 없음"),
+      "flattened two-line spreadsheet rows import without interpreting labels as filenames");
     return ok;
   }
   static bool orderedReactionInputs(const QString& fixture){
