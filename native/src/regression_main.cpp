@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <iostream>
 #include "ProjectStore.hpp"
+#include "GaussianSnapshot.hpp"
 #include "si/XyzWriter.hpp"
 #include <QTemporaryDir>
 #include <QFile>
@@ -165,10 +166,45 @@ int main(int argc, char** argv) {
   QFile xyz(xyzPath);if(!xyz.open(QIODevice::ReadOnly))return 1;const auto xyzText=xyz.readAll().replace("\r\n","\n");
   ok&=check(xyzText.startsWith("4\nA | charge=0 | multiplicity=1 | E_SPE=-101.00000000 Eh\nH")&&xyzText.contains("1.000000")&&xyzText.contains("4\nB | charge=-1 | multiplicity=3 | E_SPE=N/A Eh"),"plain-text multiframe XYZ");
 
-  ProjectState project;project.manuscriptTitle="A manuscript";project.authors="A. Author";project.affiliations="Laboratory";project.correspondingEmail="author@example.org";project.computationalDetails="User edited text";project.computationalDetailsEdited=true;project.referencesText="Reference 1";
+  // The extracted Gaussian data must survive when the original output is gone.
+  const auto snapshot=si::GaussianSnapshot::encode(metadata);
+  si::GaussianResult unpacked;
+  ok&=check(si::GaussianSnapshot::decode(snapshot,&unpacked) &&
+    unpacked.scfEnergy==metadata.scfEnergy &&
+    unpacked.gibbsFreeEnergy==metadata.gibbsFreeEnergy &&
+    unpacked.temperatureKelvin==metadata.temperatureKelvin &&
+    unpacked.imaginaryFrequencies==metadata.imaginaryFrequencies &&
+    unpacked.program==metadata.program &&
+    unpacked.spinSourcePath==metadata.spinSourcePath,
+    "Gaussian thermochemistry and metadata snapshot roundtrip");
+  const auto geometrySnapshot=si::GaussianSnapshot::encode(geometryResult);
+  ok&=check(si::GaussianSnapshot::decode(geometrySnapshot,&unpacked) &&
+    unpacked.finalGeometry.size()==geometryResult.finalGeometry.size() &&
+    unpacked.finalGeometry.front().xyz==geometryResult.finalGeometry.front().xyz &&
+    unpacked.spinDensities.size()==geometryResult.spinDensities.size(),
+    "Gaussian final coordinates and spin snapshot roundtrip");
+  const auto excitedSnapshot=si::GaussianSnapshot::encode(tdIrc);
+  ok&=check(si::GaussianSnapshot::decode(excitedSnapshot,&unpacked) &&
+    unpacked.ircPoints.size()==tdIrc.ircPoints.size() &&
+    unpacked.excitedStates.size()==tdIrc.excitedStates.size(),
+    "Gaussian TD-DFT and IRC snapshot roundtrip");
+  auto corrupted=snapshot;corrupted["sha256"]="invalid";
+  ok&=check(!si::GaussianSnapshot::decode(corrupted,&unpacked),
+    "corrupted embedded Gaussian snapshot is rejected");
+    ProjectState project;project.manuscriptTitle="A manuscript";project.authors="A. Author";project.affiliations="Laboratory";project.correspondingEmail="author@example.org";project.computationalDetails="User edited text";project.computationalDetailsEdited=true;project.referencesText="Reference 1";
+  project.files={metadataPath};
+  project.gaussianSnapshots.insert(metadataPath,snapshot);
+  project.pairedSnapshotPaths.insert(metadataPath,cachePaired);
+  project.gaussianSnapshots.insert(cachePaired,si::GaussianSnapshot::encode(*recached));
   const auto projectPath=temporary.filePath("project.json");
   ok&=check(ProjectStore::save(projectPath,project,&error),"save v4 project");
   ProjectState restored;ok&=check(ProjectStore::load(projectPath,&restored,&error)&&restored.energyBasis=="0"&&restored.manuscriptTitle==project.manuscriptTitle&&restored.computationalDetails==project.computationalDetails&&restored.computationalDetailsEdited&&restored.referencesText==project.referencesText,"v4 metadata and new basis roundtrip");
+  QFile::remove(metadataPath);
+  ok&=check(restored.gaussianSnapshots.contains(metadataPath) &&
+    restored.pairedSnapshotPaths.value(metadataPath).toString()==cachePaired &&
+    si::GaussianSnapshot::decode(restored.gaussianSnapshots.value(metadataPath).toObject(),&unpacked) &&
+    unpacked.scfEnergy==metadata.scfEnergy &&
+    !QFile::exists(metadataPath),"project retains data after original output deletion");
   for(int oldBasis=0;oldBasis<=4;++oldBasis){
     QFile legacy(projectPath);if(!legacy.open(QIODevice::WriteOnly|QIODevice::Truncate))return 1;
     legacy.write(QJsonDocument(QJsonObject{{"version",3},{"reference_settings",QJsonObject{{"energy_basis",QString::number(oldBasis)}}}}).toJson());legacy.close();
