@@ -1,5 +1,5 @@
 param(
-    [string]$QtRoot = $env:QT_ROOT_DIR,
+    [string]$QtRoot = $(if ($env:QT_ROOT_DIR) { $env:QT_ROOT_DIR } else { $env:CMAKE_PREFIX_PATH }),
     [switch]$SkipTests
 )
 
