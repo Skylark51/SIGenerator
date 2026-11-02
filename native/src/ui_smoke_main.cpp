@@ -285,6 +285,8 @@ struct Phase1Smoke {
     if(!waitForImport(source))return false;
     source.files_->item(0,0)->setText("H2O reference");
     source.includeAbsolute_->setChecked(true);
+    source.siOutputPath_->setText(temp.filePath("removed-folder/water.docx"));
+    source.xyzOutputPath_->setText(temp.filePath("removed-folder/water.xyz"));
     source.reactionStages_={QJsonObject{{"name","Water"},{"files",QJsonArray{primary}},
                                          {"reference",primary}}};
     const auto project=temp.filePath("portable.si_project.json");
@@ -296,6 +298,9 @@ struct Phase1Smoke {
     ok&=check(QFile::remove(primary)&&QFile::remove(singlePoint),"original Gaussian files removed");
     MainWindow reopened;
     ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"offline project reopens");
+    ok&=check(reopened.siOutputPath_->text()==temp.filePath("water.docx")&&
+      reopened.xyzOutputPath_->text()==temp.filePath("water.xyz"),
+      "moved project redirects missing output directories into project folder");
     const auto records=reopened.energyRecords();
     ok&=check(records.size()==1&&records[0].frequency.finalGeometry.size()==3&&
       records[0].frequency.scfEnergy==std::optional<double>(-76.4)&&
