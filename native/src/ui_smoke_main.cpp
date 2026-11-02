@@ -30,6 +30,7 @@
 #include <QLabel>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFileDialog>
 #include <QDir>
 #include "DocxWriter.hpp"
