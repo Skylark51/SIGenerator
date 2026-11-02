@@ -2,6 +2,7 @@
 #include "si/DocumentModel.hpp"
 #include <QDialog>
 #include <QJsonObject>
+#include <QVector>
 
 class MoleculeViewWidget;
 class QComboBox;
@@ -23,9 +24,12 @@ private:
   void showGroup();
   void storeGroup();
   void finish();
+  void rebuildDefaultRows();
   QVector<si::CoordinateBlock> structures_;
   QStringList paths_;
   QVector<int> order_;
+  QVector<QVector<int>> rows_;
+  bool customRows_{};
   QJsonObject views_;
   QJsonObject renderStyle_;
   QVector<si::DocumentFigure> figures_;
