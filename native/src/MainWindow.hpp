@@ -63,6 +63,8 @@ private:
   void pasteStructureTitles(const QString& text);
   void addExistingStageStructures();
   void removeStageStructure();
+  void clearStageStructures();
+  [[nodiscard]] bool stageNeedsManualRelative(int index) const;
   void moveStageStructure(int delta);
   void updateStructureOrderButtons();
   void showExtractionDetails();
@@ -76,6 +78,10 @@ private:
   QLabel* stageLabelPreview_{};
   QTextEdit* stageFigureCaptions_{};
   QComboBox* stageReference_{};
+  QCheckBox* stageManualRelativeToggle_{};
+  QTextEdit* stageManualRelativeValues_{};
+  QLabel* stageManualRelativeHelp_{};
+  QPushButton* clearStageMembers_{};
   QComboBox* previewScope_{};
   QWidget* stageSettings_{};
   QCheckBox* stageTableChecks_[4]{};
