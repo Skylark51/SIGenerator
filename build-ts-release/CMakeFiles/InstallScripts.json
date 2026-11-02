@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"S:/build-ts-release/cmake_install.cmake",
-		"S:/build-ts-release/native/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

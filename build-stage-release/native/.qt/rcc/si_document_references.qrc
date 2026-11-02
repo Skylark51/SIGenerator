@@ -1,8 +1,0 @@
-<RCC>
-  <qresource prefix="/si">
-    <file alias="si-generator.png">S:/native/resources/si-generator.png</file>
-    <file alias="recovered_computational_references.txt">S:/native/resources/recovered_computational_references.txt</file>
-    <file alias="published_computational_references.json">S:/native/resources/published_computational_references.json</file>
-  </qresource>
-</RCC>
-

@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="/si">
-    <file alias="recovered_computational_references.txt">S:/native/resources/recovered_computational_references.txt</file>
-  </qresource>
-</RCC>
-

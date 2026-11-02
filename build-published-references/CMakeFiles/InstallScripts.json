@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"S:/build-published-references/cmake_install.cmake",
-		"S:/build-published-references/native/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

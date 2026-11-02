@@ -1,4 +1,0 @@
-gaussian_regression 2 0.0431455
-document_regression 2 0.0153208
-ui_smoke 1 5.14553
----
