@@ -1,6 +1,7 @@
 #pragma once
 #include "si/DocumentModel.hpp"
 #include <QDialog>
+#include <QHash>
 #include <QJsonObject>
 #include <QVector>
 
@@ -32,13 +33,16 @@ private:
   bool customRows_{};
   QJsonObject views_;
   QJsonObject renderStyle_;
+  QHash<QString,int> retainedHydrogens_;
   QVector<si::DocumentFigure> figures_;
   QVector<MoleculeViewWidget*> viewers_;
   QVector<QComboBox*> selectors_;
+  QVector<QComboBox*> hydrogenSelectors_;
   QVBoxLayout* panels_{};
   QWidget* panelWidget_{};
   QCheckBox* linked_{};
   QCheckBox* indices_{};
+  QCheckBox* hideHydrogens_{};
   QLabel* status_{};
   QPushButton* previous_{};
   QPushButton* next_{};

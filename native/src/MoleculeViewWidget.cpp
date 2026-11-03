@@ -37,6 +37,15 @@ void MoleculeViewWidget::setMolecule(const std::vector<si::Atom>& atoms, const s
 void MoleculeViewWidget::clearMolecule() { atoms_.clear(); spins_.clear();spinBasisLevel_="unknown";spinFallback_=false;bonds_.clear(); selectedAtoms_.clear(); update(); }
 void MoleculeViewWidget::setInteractionMode(InteractionMode mode) { mode_ = mode; selectedAtoms_.clear(); emit geometrySelectionChanged(selectedAtoms_); update(); }
 void MoleculeViewWidget::setAtomIndicesVisible(bool visible) { showIndices_ = visible; update(); }
+void MoleculeViewWidget::setHydrogenVisibility(bool hideHydrogens, int retainedHydrogenIndex) {
+  hideHydrogens_ = hideHydrogens;
+  retainedHydrogenIndex_ = retainedHydrogenIndex;
+  update();
+}
+bool MoleculeViewWidget::atomVisible(int atomIndex) const {
+  if(atomIndex<1 || static_cast<size_t>(atomIndex)>atoms_.size())return false;
+  return !hideHydrogens_ || atoms_[static_cast<size_t>(atomIndex-1)].atomicNumber!=1 || atomIndex==retainedHydrogenIndex_;
+}
 void MoleculeViewWidget::resetView() { yaw_=-25.0; pitch_=20.0; roll_=0.0; zoom_=1.0; pan_={}; update(); emit cameraChanged(); }
 void MoleculeViewWidget::clearSelection() { selectedAtoms_.clear(); emit geometrySelectionChanged(selectedAtoms_); update(); }
 void MoleculeViewWidget::initializeGL() {}
@@ -45,9 +54,17 @@ void MoleculeViewWidget::resizeGL(int, int) {}
 QVector<MoleculeViewWidget::ProjectedAtom> MoleculeViewWidget::projectedAtoms(QSize size) const {
   const int width=size.width(),height=size.height();
   QVector<ProjectedAtom> output; if (atoms_.empty()) return output;
-  std::array<double,3> center{}; for (const auto& atom : atoms_) for(int i=0;i<3;++i) center[i]+=atom.xyz[i]; for(double& v:center)v/=static_cast<double>(atoms_.size());
+  std::array<double,3> center{};size_t visibleCount=0;
+  for(size_t index=0;index<atoms_.size();++index)if(atomVisible(static_cast<int>(index)+1)){
+    for(int i=0;i<3;++i)center[i]+=atoms_[index].xyz[i];
+    ++visibleCount;
+  }
+  if(visibleCount>0)for(double& v:center)v/=static_cast<double>(visibleCount);
   const double cy=std::cos(yaw_*std::numbers::pi/180.0), sy=std::sin(yaw_*std::numbers::pi/180.0), cp=std::cos(pitch_*std::numbers::pi/180.0), sp=std::sin(pitch_*std::numbers::pi/180.0);
-  double extent=1.0; for(const auto& atom:atoms_) for(int i=0;i<3;++i) extent=std::max(extent,std::abs(atom.xyz[i]-center[i])+atomRadius(atom));
+  double extent=1.0;for(size_t index=0;index<atoms_.size();++index)if(atomVisible(static_cast<int>(index)+1)){
+    const auto& atom=atoms_[index];
+    for(int i=0;i<3;++i)extent=std::max(extent,std::abs(atom.xyz[i]-center[i])+atomRadius(atom));
+  }
   const double cr=std::cos(roll_*std::numbers::pi/180.0),sr=std::sin(roll_*std::numbers::pi/180.0);
   const double scale=std::min(width,height)*0.38/extent*zoom_;
   output.reserve(static_cast<qsizetype>(atoms_.size()));
@@ -104,8 +121,12 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
   // Paint cylinders and spheres together in camera depth order.
   struct Primitive { double depth; int atom; int bond; };
   QVector<Primitive> primitives;
-  for(const auto& item:projected)primitives.append({item.depth,item.index-1,-1});
-  for(int i=0;i<bonds_.size();++i){const auto& b=bonds_[i];primitives.append({(projected[b.first].depth+projected[b.second].depth)/2,-1,i});}
+  for(const auto& item:projected)if(atomVisible(item.index))primitives.append({item.depth,item.index-1,-1});
+  for(int i=0;i<bonds_.size();++i){
+    const auto& b=bonds_[i];
+    if(!atomVisible(b.first+1)||!atomVisible(b.second+1))continue;
+    primitives.append({(projected[b.first].depth+projected[b.second].depth)/2,-1,i});
+  }
   std::sort(primitives.begin(),primitives.end(),[](const auto& a,const auto& b){return a.depth>b.depth;});
   for(const auto& primitive:primitives){
     if(primitive.bond>=0){const auto& b=bonds_[primitive.bond];QPointF a=projected[b.first].point,c=projected[b.second].point;const auto axis=c-a;const double length=QLineF(a,c).length();
@@ -139,7 +160,7 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
 }
 
 void MoleculeViewWidget::rebuildBonds(){bonds_.clear();for(size_t i=0;i<atoms_.size();++i)for(size_t j=i+1;j<atoms_.size();++j){const auto&a=atoms_[i],&b=atoms_[j];const double dx=a.xyz[0]-b.xyz[0],dy=a.xyz[1]-b.xyz[1],dz=a.xyz[2]-b.xyz[2],distance=std::sqrt(dx*dx+dy*dy+dz*dz);const double cutoff=1.22*(covalentRadius(a.atomicNumber)+covalentRadius(b.atomicNumber));if(distance>0.2&&distance<=cutoff)bonds_.append({static_cast<int>(i),static_cast<int>(j)});}}
-int MoleculeViewWidget::pickAtom(const QPointF& position) const {int picked=-1;double best=1e9,bestDepth=1e9;for(const auto& item:projectedAtoms()){const double d=QLineF(position,item.point).length();if(d<=item.radius+7.0&&(item.depth<bestDepth||(item.depth==bestDepth&&d<best))){picked=item.index;best=d;bestDepth=item.depth;}}return picked;}
+int MoleculeViewWidget::pickAtom(const QPointF& position) const {int picked=-1;double best=1e9,bestDepth=1e9;for(const auto& item:projectedAtoms()){if(!atomVisible(item.index))continue;const double d=QLineF(position,item.point).length();if(d<=item.radius+7.0&&(item.depth<bestDepth||(item.depth==bestDepth&&d<best))){picked=item.index;best=d;bestDepth=item.depth;}}return picked;}
 void MoleculeViewWidget::handleClick(const QPointF& position){const int picked=pickAtom(position);if(picked<1)return;const auto& atom=atoms_[static_cast<size_t>(picked-1)];if(mode_==InteractionMode::Geometry){if(selectedAtoms_.contains(picked))selectedAtoms_.removeAll(picked);else{if(selectedAtoms_.size()>=4)selectedAtoms_.clear();selectedAtoms_.append(picked);}emit geometrySelectionChanged(selectedAtoms_);}else{selectedAtoms_={picked};double spin=0.0;bool found=false;for(const auto& value:spins_)if(value.atomIndex==picked){spin=value.spin;found=true;break;}emit atomPicked(picked,QString::fromStdString(atom.symbol),spin,found);}update();}
 void MoleculeViewWidget::mousePressEvent(QMouseEvent* event){lastMouse_=event->pos();dragging_=true;moved_=false;dragButton_=event->button();event->accept();}
 void MoleculeViewWidget::mouseMoveEvent(QMouseEvent* event){if(!dragging_)return;const QPoint delta=event->pos()-lastMouse_;if(delta.manhattanLength()>2)moved_=true;if(dragButton_==Qt::RightButton||event->modifiers().testFlag(Qt::ShiftModifier))pan_+=QPointF(delta)/std::max(1,std::min(captureRect().width(),captureRect().height()));else if(event->modifiers().testFlag(Qt::AltModifier)){roll_+=delta.x()*0.6;}else{yaw_+=delta.x()*0.6;pitch_+=delta.y()*0.6;}lastMouse_=event->pos();update();emit cameraChanged();}

@@ -16,6 +16,7 @@
 #include <QPainter>
 #include <QFontMetrics>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QQuaternion>
 #include <QVector3D>
 #include <QVBoxLayout>
@@ -82,6 +83,9 @@ bool alignTo(std::vector<si::Atom>& moving, const std::vector<si::Atom>& target)
 FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structures,const QStringList& paths,const QJsonObject& settings,QWidget* parent)
   : QDialog(parent),structures_(structures),paths_(paths),views_(settings.value("views").toObject()) {
   renderStyle_=currentYoungcraftStyle();
+  const auto storedHydrogens=settings.value("retained_hydrogens").toObject();
+  for(auto it=storedHydrogens.begin();it!=storedHydrogens.end();++it)
+    if(paths_.contains(it.key()))retainedHydrogens_.insert(it.key(),it.value().toInt());
   setObjectName("figureSetupDialog");setWindowTitle(tr("SI 분자 Figure 준비"));resize(1250,650);
   QSet<int> used;QJsonArray sourceSequence;for(const auto& path:paths_)sourceSequence.append(path);
   // Version 1 saved an order produced by a filename substring heuristic.
@@ -112,6 +116,11 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   auto* controls=new QHBoxLayout;
   linked_=new QCheckBox(tr("카메라 함께 회전"),this);linked_->setObjectName("linkFigureCameras");linked_->setChecked(true);controls->addWidget(linked_);
   indices_=new QCheckBox(tr("원자 번호 표시"),this);indices_->setChecked(settings.value("indices").toBool(false));controls->addWidget(indices_);
+  hideHydrogens_=new QCheckBox(tr("수소 원자 숨기기"),this);
+  hideHydrogens_->setObjectName("hideFigureHydrogens");
+  hideHydrogens_->setToolTip(tr("모든 수소를 숨기되 구조별로 선택한 C–H 활성화 대상 수소는 표시합니다."));
+  hideHydrogens_->setChecked(settings.value("hide_hydrogens").toBool(false));
+  controls->addWidget(hideHydrogens_);
   auto* match=new QPushButton(tr("TS 기준 정렬 및 뷰 맞추기"),this);match->setObjectName("alignFigureViews");controls->addWidget(match);
   auto* reset=new QPushButton(tr("뷰 초기화"),this);controls->addWidget(reset);layout->addLayout(controls);
   auto* lineControls=new QHBoxLayout;
@@ -153,6 +162,11 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   connect(previous_,&QPushButton::clicked,this,[this]{storeGroup();--group_;showGroup();});
   connect(next_,&QPushButton::clicked,this,[this]{storeGroup();if(group_+1<rows_.size()){++group_;showGroup();}else finish();});
   connect(indices_,&QCheckBox::toggled,this,[this](bool checked){for(auto* view:viewers_)view->setAtomIndicesVisible(checked);});
+  connect(hideHydrogens_,&QCheckBox::toggled,this,[this](bool hidden){
+    for(int i=0;i<viewers_.size();++i)
+      viewers_[i]->setHydrogenVisibility(hidden,retainedHydrogens_.value(paths_[rows_[group_][i]],0));
+    for(auto* selector:hydrogenSelectors_)selector->setEnabled(hidden);
+  });
   connect(reset,&QPushButton::clicked,this,[this]{changing_=true;for(auto* view:viewers_)view->resetView();changing_=false;});
   connect(match,&QPushButton::clicked,this,[this]{
     const int reference=group_==0&&viewers_.size()==3?1:0;
@@ -182,7 +196,7 @@ void FigureSetupDialog::storeGroup(){
   }
 }
 void FigureSetupDialog::showGroup(){
-  changing_=true;viewers_.clear();selectors_.clear();
+  changing_=true;viewers_.clear();selectors_.clear();hydrogenSelectors_.clear();
   while(auto* item=panels_->takeAt(0)){if(auto* widget=item->widget()){widget->hide();widget->deleteLater();}delete item;}
   auto* rowWidget=new QWidget(panelWidget_);auto* row=new QHBoxLayout(rowWidget);row->setContentsMargins(0,0,0,0);panels_->addWidget(rowWidget);
   const int start=group_==0?0:3+(group_-1)*2;
@@ -208,14 +222,38 @@ void FigureSetupDialog::showGroup(){
       if(rows_[group_].size()<=1){status_->setText(tr("한 줄에는 최소 한 구조가 필요합니다."));return;}
       storeGroup();customRows_=true;rows_[group_].removeAt(i);showGroup();
     });
-    auto* viewer=new MoleculeViewWidget(column);viewer->setObjectName(QString("figureView%1").arg(i));viewer->setCaptureFraming(true);viewer->setMinimumSize(240,280);vertical->addWidget(viewer,1);
     const int index=rows_[group_][i];auto atoms=structures_[index].atoms;
+    auto* hydrogenSelector=new QComboBox(column);
+    hydrogenSelector->setObjectName(QString("figureHydrogenKeep%1").arg(i));
+    hydrogenSelector->setToolTip(tr("원본 Gaussian 파일 기준 원자 번호(1부터 시작). 선택한 H와 연결 결합만 표시됩니다."));
+    hydrogenSelector->addItem(tr("표시할 수소 없음"),0);
+    for(size_t atom=0;atom<structures_[index].atoms.size();++atom)
+      if(structures_[index].atoms[atom].atomicNumber==1)
+        hydrogenSelector->addItem(QStringLiteral("H(%1)").arg(atom+1),static_cast<int>(atom)+1);
+    hydrogenSelector->setCurrentIndex(std::max(0,hydrogenSelector->findData(retainedHydrogens_.value(paths_[index],0))));
+    hydrogenSelector->setEnabled(hideHydrogens_->isChecked());
+    vertical->addWidget(new QLabel(tr("표시할 H (C–H 활성화)"),column));
+    vertical->addWidget(hydrogenSelector);hydrogenSelectors_.append(hydrogenSelector);
+    auto* viewer=new MoleculeViewWidget(column);viewer->setObjectName(QString("figureView%1").arg(i));viewer->setCaptureFraming(true);viewer->setMinimumSize(240,280);vertical->addWidget(viewer,1);
     if(i!=reference&&!alignTo(atoms,structures_[rows_[group_][reference]].atoms))++failed;
     viewer->setRenderStyle(renderStyle_);viewer->setMolecule(atoms,{});viewer->setAtomIndicesVisible(indices_->isChecked());
+    viewer->setHydrogenVisibility(hideHydrogens_->isChecked(),retainedHydrogens_.value(paths_[index],0));
     const auto slotKey=QStringLiteral("row:%1:%2").arg(group_).arg(i);
     if(customRows_&&views_.contains(slotKey))viewer->setCameraState(views_.value(slotKey).toObject());
     else if(views_.contains(paths_[index]))viewer->setCameraState(views_.value(paths_[index]).toObject());
     viewers_.append(viewer);
+    connect(hydrogenSelector,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,index,i](int){
+      if(changing_)return;
+      const int retained=hydrogenSelectors_[i]->currentData().toInt();
+      retainedHydrogens_.insert(paths_[index],retained);
+      for(int panel=0;panel<viewers_.size();++panel)if(rows_[group_][panel]==index){
+        viewers_[panel]->setHydrogenVisibility(hideHydrogens_->isChecked(),retained);
+        if(panel!=i){
+          QSignalBlocker blocked(hydrogenSelectors_[panel]);
+          hydrogenSelectors_[panel]->setCurrentIndex(hydrogenSelectors_[panel]->findData(retained));
+        }
+      }
+    });
     connect(selector,qOverload<int>(&QComboBox::currentIndexChanged),this,[this,i,start,selector]{
       if(changing_)return;storeGroup();
       const int chosen=selector->currentData().toInt();
@@ -239,7 +277,9 @@ QJsonObject FigureSetupDialog::settings() const {
   for(int index:order_)order.append(paths_[index]);
   for(const auto& path:paths_)sources.append(path);
   for(const auto& indices:rows_){QJsonArray row;for(int index:indices)row.append(paths_[index]);rows.append(row);}
-  return {{"sequence_version",2},{"sources",sources},{"order",order},{"rows_version",1},{"rows",rows},{"views",views_},{"indices",indices_->isChecked()},{"render_style",renderStyle_}};
+  QJsonObject retained;for(auto it=retainedHydrogens_.cbegin();it!=retainedHydrogens_.cend();++it)retained.insert(it.key(),it.value());
+  return {{"sequence_version",2},{"sources",sources},{"order",order},{"rows_version",1},{"rows",rows},{"views",views_},{"indices",indices_->isChecked()},
+    {"hide_hydrogens",hideHydrogens_->isChecked()},{"retained_hydrogens",retained},{"render_style",renderStyle_}};
 }
 QVector<si::DocumentFigure> FigureSetupDialog::figures() const { return figures_; }
 void FigureSetupDialog::finish(){
@@ -254,6 +294,7 @@ void FigureSetupDialog::finish(){
       const int index=rows_[group][i];auto atoms=structures_[index].atoms;
       if(i!=reference)alignTo(atoms,structures_[rows_[group][reference]].atoms);
       MoleculeViewWidget view;view.setRenderStyle(renderStyle_);view.setMolecule(atoms,{});view.setAtomIndicesVisible(indices_->isChecked());
+      view.setHydrogenVisibility(hideHydrogens_->isChecked(),retainedHydrogens_.value(paths_[index],0));
       const auto slotKey=QStringLiteral("row:%1:%2").arg(group).arg(i);
       view.setCameraState(customRows_&&views_.contains(slotKey)?views_.value(slotKey).toObject():views_.value(paths_[index]).toObject());
       painter.drawImage(i*1200,0,view.renderMolecule());
