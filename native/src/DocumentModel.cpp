@@ -34,7 +34,9 @@ QString relativeGibbsFootnote(const DocumentTable& table) {
   const int count=last-first;
   const QString word=count==4?QStringLiteral("four"):count==5?QStringLiteral("five"):
     count==6?QStringLiteral("six"):QString::number(count);
-  return QStringLiteral("Gibbs free energy = sum of the previous %1 columns, starting with E_{Total}.").arg(word);
+  auto note=QStringLiteral("Gibbs free energy = sum of the previous %1 columns, starting with E_{Total}.").arg(word);
+  if(table.hasManualRelativeValues)note+=QStringLiteral(" Manually assigned entries replace the corresponding calculated values; explicitly assigned ΔG values are used as supplied.");
+  return note;
 }
 
 QString computationalDetailsBody(QString text) {

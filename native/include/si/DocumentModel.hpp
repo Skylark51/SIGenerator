@@ -28,6 +28,7 @@ struct DocumentTable {
   QVector<int> boldColumns;
   QString stageId;
   int documentNumber{};
+  bool hasManualRelativeValues{false};
 };
 
 struct CoordinateBlock {

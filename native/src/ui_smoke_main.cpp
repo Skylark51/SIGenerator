@@ -244,6 +244,66 @@ struct Phase1Smoke {
     return ok;
   }
 
+  static bool stageStructureThermodynamics(const QString& fixture){
+    MainWindow window;window.show();QTemporaryDir folder;bool ok=true;QStringList paths;
+    for(int i=0;i<3;++i){auto path=folder.filePath(QString("thermo-%1.log").arg(i));if(!QFile::copy(fixture,path))return false;paths.append(path);}
+    window.parsePaths(paths,false,false);if(!waitForImport(window))return false;
+    for(int i=0;i<3;++i){auto data=std::make_shared<si::GaussianResult>(*window.parsed_.value(paths[i]));
+      data->scfEnergy=-100.0+i*0.01;data->zeroPointKcal=10.0+i;data->thermalTotalKcal=12.0+i;data->entropy=50.0+i;
+      if(i==1)data->finalGeometry.push_back(data->finalGeometry.back());window.parsed_[paths[i]]=data;
+    }
+    window.reactionStages_={
+      QJsonObject{{"id","mixed"},{"name","Mixed"},{"files",QJsonArray{paths[0],paths[1],paths[2]}},{"reference",paths[0]}},
+      QJsonObject{{"id","shared"},{"name","Shared"},{"files",QJsonArray{paths[1]}},{"reference",paths[1]}},
+      QJsonObject{{"id","normal"},{"name","Normal"},{"files",QJsonArray{paths[0],paths[2]}},{"reference",paths[0]}}
+    };
+    window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
+    window.chooseStageScope(0);window.stageStructureRelativeToggle_->setChecked(true);window.refreshDocumentModel();
+    auto relative=[&](const QString& id){for(const auto& table:window.documentModel_.tables)if(table.section==si::DocumentSection::RelativeEnergy&&table.stageId==id)return table;return si::DocumentTable{};};
+    const auto normalBefore=relative("normal"),sharedBefore=relative("shared");const auto sources=window.parsed_;
+    auto mixed=relative("mixed");ok&=check(mixed.headers.size()==8&&mixed.rows.size()==3&&mixed.rows[1].last()=="입력 필요"&&!window.preflightErrors().isEmpty(),"per-structure mode requires only incompatible structures to be corrected");
+    const auto referenceBefore=mixed.rows[0],compatibleBefore=mixed.rows[2];
+    auto isolatedStage=window.reactionStages_[0].toObject();isolatedStage["structure_relative_values"]=QJsonObject{{paths[2],QJsonObject{{"ΔE","42.00"}}}};
+    auto expectedCompatible=compatibleBefore;expectedCompatible[1]="42.00";
+    ok&=check(window.stageRelativeRow(isolatedStage,paths[2],mixed.headers,compatibleBefore)==expectedCompatible,"editing one electronic component preserves every other automatic value");
+
+    window.stageGrid_->setCurrentCell(1,0);
+    QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(!dialog){ok=false;return;}
+      ok&=check(dialog->objectName()=="stageStructureRelativeDialog","selected structure energy editor opens");
+      dialog->findChild<QLineEdit*>("stageRelativeValue_8")->setText("15.25");
+      dialog->findChild<QLineEdit*>("stageRelativeValue_3")->setText("1.25");
+      dialog->findChild<QLineEdit*>("stageRelativeValue_5")->setText("-2.50");
+      dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    });window.findChild<QPushButton*>("editStageStructureRelative")->click();window.refreshDocumentModel();
+    mixed=relative("mixed");ok&=check(mixed.rows[1].last()=="15.25"&&mixed.rows[1][mixed.headers.indexOf("ΔZ_{0}")]=="1.25"&&mixed.rows[1][mixed.headers.indexOf("-TΔS^{b}")]=="-2.50"&&mixed.rows[1][1]=="N/A","selected row accepts Gibbs and individual thermodynamic components without using incompatible automatic energies");
+    ok&=check(mixed.rows[0]==referenceBefore&&mixed.rows[2]==compatibleBefore&&relative("shared").rows==sharedBefore.rows&&relative("normal").rows==normalBefore.rows&&window.parsed_==sources,"other structures, stages and original Gaussian values remain unchanged");
+    ok&=check(window.preflightErrors().isEmpty(),"a single corrected mismatched structure satisfies export checks");
+    const auto savedStage=window.reactionStages_[0];
+    ok&=check(relative("mixed").hasManualRelativeValues&&!relative("normal").hasManualRelativeValues&&si::relativeGibbsFootnote(relative("mixed")).contains("used as supplied"),"manual assignments are identified only in the corrected table and its footnote");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(!dialog){ok=false;return;}
+      auto* field=dialog->findChild<QLineEdit*>("stageRelativeValue_8");field->setText("nan");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+      ok&=check(dialog->isVisible()&&!dialog->findChild<QLabel*>("stageRelativeError")->text().isEmpty(),"nonfinite input is rejected without closing the editor");dialog->reject();
+    });window.editStageStructureRelative();ok&=check(window.reactionStages_[0]==savedStage,"cancelling invalid edit preserves previous values");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(!dialog){ok=false;return;}
+      dialog->findChild<QLineEdit*>("stageRelativeValue_8")->clear();dialog->findChild<QLineEdit*>("stageRelativeValue_2")->setText("10.00");
+      dialog->findChild<QLineEdit*>("stageRelativeValue_4")->setText("2.00");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    });window.editStageStructureRelative();window.refreshDocumentModel();
+    ok&=check(relative("mixed").rows[1].last()=="10.75"&&window.preflightErrors().isEmpty(),"Gibbs energy sums all supplied thermal components when explicit Gibbs is blank");
+    window.includeDispersion_->setChecked(true);window.refreshDocumentModel();
+    ok&=check(relative("mixed").rows[1].last()=="입력 필요"&&!window.preflightErrors().isEmpty(),"enabled dispersion must be supplied for an incompatible structure");
+    window.includeDispersion_->setChecked(false);window.refreshDocumentModel();
+    window.stageGrid_->setCurrentCell(1,0);window.moveStageStructure(1);window.stageGrid_->item(2,0)->setText("renamed-thermo");window.refreshDocumentModel();
+    ok&=check(relative("mixed").rows[2][0]=="renamed-thermo"&&relative("mixed").rows[2].last()=="10.75","overrides follow the file when the structure is reordered and renamed");
+    QString error;const auto project=folder.filePath("thermodynamics.json");ok&=check(window.saveProjectToPath(project),"per-structure energy project saves");
+    MainWindow reopened;ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"per-structure energy project reopens");reopened.refreshDocumentModel();
+    bool restored=false;for(const auto& table:reopened.documentModel_.tables)if(table.section==si::DocumentSection::RelativeEnergy&&table.stageId=="mixed")restored=table.rows[2].last()=="10.75";
+    ok&=check(restored&&reopened.reactionStages_==window.reactionStages_,"per-stage path-linked overrides and preview survive save and reload");
+    const auto document=folder.filePath("thermodynamics.docx");ok&=check(DocxWriter::writeDocument(document,window.documentModel_,&error),"per-structure thermal table exports to DOCX");
+    QFile output(document);ok&=check(output.open(QIODevice::ReadOnly)&&output.readAll().contains(">10.75</w:t>"),"DOCX contains the corrected Gibbs value");
+    window.chooseStageScope(1);ok&=check(!window.stageStructureRelativeToggle_->isChecked(),"structure input mode belongs only to its selected reaction");
+    return ok;
+  }
+
   static bool bulkTitlesAndStageContext(const QString& fixture){
     MainWindow window;QTemporaryDir directory;bool ok=true;
     QStringList paths;
@@ -1211,6 +1271,7 @@ int main(int argc,char** argv){
   si::SIDocumentModel longDocument;for(int i=0;i<120;++i)longDocument.figureCaptions.append(QStringLiteral("Long preview row %1").arg(i));window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(1);QCoreApplication::processEvents();preview->setDocumentModel(longDocument);QTest::qWait(30);auto* browser=preview->findChild<QTextBrowser*>();auto* scroll=browser?browser->verticalScrollBar():nullptr;ok&=check(scroll&&scroll->maximum()>0,"preview is scrollable");if(scroll&&scroll->maximum()>0){scroll->setValue(scroll->maximum()/2);const int before=scroll->value();longDocument.title=QStringLiteral("Updated title");preview->setDocumentModel(longDocument);QTest::qWait(30);ok&=check(scroll->value()>0&&std::abs(scroll->value()-before)<std::max(20,scroll->maximum()/10),"preview scroll position preserved after refresh");}
   window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(0);QCoreApplication::processEvents();ok&=Phase1Smoke::run(window);
   ok&=Phase1Smoke::reactionWorkspace(QString::fromLocal8Bit(argv[1]));
+  ok&=Phase1Smoke::stageStructureThermodynamics(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::projectManagerWorkflow();
   ok&=Phase1Smoke::portableProject(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::reactionStageNames(QString::fromLocal8Bit(argv[1]));

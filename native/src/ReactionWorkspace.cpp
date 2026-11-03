@@ -28,6 +28,7 @@
 #include <QUuid>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 QString stageId(const QJsonObject& stage){return stage.value("id").toString(stage["name"].toString());}
@@ -70,6 +71,17 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   stageNameEdit_=new QLineEdit(stageSettings_);stageNameEdit_->setObjectName("activeStageName");stageNameEdit_->setPlaceholderText(tr("반응 단계 이름"));stageLayout->addWidget(stageNameEdit_);
   auto* referenceRow=new QHBoxLayout;referenceRow->addWidget(new QLabel(tr("기준 구조"),stageSettings_));stageReference_=new QComboBox(stageSettings_);stageReference_->setObjectName("activeStageReference");referenceRow->addWidget(stageReference_,1);stageLayout->addLayout(referenceRow);
   auto* tables=new QHBoxLayout;const QStringList names={tr("절대 에너지"),tr("상대 에너지"),tr("스핀"),tr("기하")};for(int i=0;i<4;++i){stageTableChecks_[i]=new QCheckBox(names[i],stageSettings_);stageTableChecks_[i]->setObjectName("stageTable_"+tableKeys[i]);tables->addWidget(stageTableChecks_[i]);connect(stageTableChecks_[i],&QCheckBox::toggled,this,[this,i](bool checked){if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage[tableKeys[i]]=checked;reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});}stageLayout->addLayout(tables);
+  stageStructureRelativeToggle_=new QCheckBox(tr("이 반응에서 구조별 상대 에너지·열역학 입력 사용"),stageSettings_);
+  stageStructureRelativeToggle_->setObjectName("stageStructureRelativeToggle");stageLayout->addWidget(stageStructureRelativeToggle_);
+  connect(stageStructureRelativeToggle_,&QCheckBox::toggled,this,[this](bool checked){
+    if(updatingStageWorkspace_||activeStage_<0)return;
+    auto stage=reactionStages_[activeStage_].toObject();stage["structure_relative_enabled"]=checked;
+    if(checked)stage["manual_relative_enabled"]=false;
+    reactionStages_[activeStage_]=stage;refreshStageWorkspace();scheduleDocumentRefresh();
+  });
+  auto* editEnergy=new QPushButton(tr("선택 구조의 상대 에너지·열역학 입력…"),stageSettings_);
+  editEnergy->setObjectName("editStageStructureRelative");stageLayout->addWidget(editEnergy);
+  connect(editEnergy,&QPushButton::clicked,this,&MainWindow::editStageStructureRelative);
   stageManualRelativeToggle_=new QCheckBox(tr("이 반응 상대에너지 직접 입력 (ΔG, kcal/mol)"),stageSettings_);
   stageManualRelativeToggle_->setObjectName("stageManualRelativeToggle");
   stageLayout->addWidget(stageManualRelativeToggle_);
@@ -79,8 +91,8 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   stageManualRelativeValues_->setPlaceholderText(tr("예: 0.00\n19.25\n-4.70"));stageManualRelativeValues_->setFixedHeight(85);stageLayout->addWidget(stageManualRelativeValues_);
   connect(stageManualRelativeToggle_,&QCheckBox::toggled,this,[this](bool checked){
     if(updatingStageWorkspace_||activeStage_<0)return;
-    auto stage=reactionStages_[activeStage_].toObject();stage["manual_relative_enabled"]=checked;reactionStages_[activeStage_]=stage;
-    stageManualRelativeHelp_->setVisible(checked);stageManualRelativeValues_->setVisible(checked);scheduleDocumentRefresh();
+    auto stage=reactionStages_[activeStage_].toObject();stage["manual_relative_enabled"]=checked;if(checked)stage["structure_relative_enabled"]=false;reactionStages_[activeStage_]=stage;
+    stageManualRelativeHelp_->setVisible(checked);stageManualRelativeValues_->setVisible(checked);refreshStageWorkspace();scheduleDocumentRefresh();
   });
   connect(stageManualRelativeValues_,&QTextEdit::textChanged,this,[this]{
     if(updatingStageWorkspace_||activeStage_<0)return;
@@ -174,7 +186,7 @@ void MainWindow::refreshStageNavigation(){
   if(activeStage_>=reactionStages_.size())activeStage_=reactionStages_.isEmpty()?-2:0;if(activeStage_>=0)stageNavigation_->setCurrentRow(activeStage_);
 }
 
-void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();if(stageNeedsManualRelative(stage)&&stageManualRelativeValues_)scrollTo(stageManualRelativeValues_);}
+void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();if(stageNeedsManualRelative(stage)&&stageManualRelativeValues_)scrollTo(stageStructureRelativeToggle_->isChecked()?static_cast<QWidget*>(stageStructureRelativeToggle_):stageManualRelativeValues_);}
 
 bool MainWindow::stageNeedsManualRelative(int index) const {
   if(index<0||index>=reactionStages_.size())return false;
@@ -196,12 +208,14 @@ void MainWindow::refreshStageWorkspace(){
   structureScope_->setText(selected?stage["name"].toString()+tr(" · 구조 %1개").arg(visible.size()):activeStage_==-3?tr("미배정 구조 · %1개").arg(visible.size()):activeStage_==-1?tr("전체 SI · 구조 %1개").arg(visible.size()):tr("전체 구조 보관함 · %1개").arg(visible.size()));stageSettings_->setVisible(selected);addExistingStage_->setEnabled(selected&&!parsing_);removeStageMember_->setText(selected?tr("이 반응에서 제외"):tr("보관함에서 제거"));
   clearStageMembers_->setVisible(selected);clearStageMembers_->setEnabled(selected&&!visible.isEmpty()&&!parsing_);
   const bool needsManual=selected&&stageNeedsManualRelative(activeStage_);
-  const bool useManual=selected&&(needsManual||stage.value("manual_relative_enabled").toBool(false));
-  {QSignalBlocker blocked(stageManualRelativeToggle_);stageManualRelativeToggle_->setChecked(useManual);stageManualRelativeToggle_->setEnabled(selected&&!needsManual);
-    stageManualRelativeToggle_->setToolTip(needsManual?tr("원자 수가 서로 달라 수동 입력을 해제할 수 없습니다."):QString());}
+  const bool perStructure=stage.value("structure_relative_enabled").toBool(false);
+  {QSignalBlocker blocked(stageStructureRelativeToggle_);stageStructureRelativeToggle_->setChecked(perStructure);}
+  const bool useManual=selected&&!perStructure&&(needsManual||stage.value("manual_relative_enabled").toBool(false));
+  {QSignalBlocker blocked(stageManualRelativeToggle_);stageManualRelativeToggle_->setChecked(useManual);stageManualRelativeToggle_->setEnabled(selected&&(!needsManual||perStructure));
+    stageManualRelativeToggle_->setToolTip(needsManual&&!perStructure?tr("원자 수가 서로 달라 수동 입력을 해제할 수 없습니다."):QString());}
   {QSignalBlocker blocked(stageManualRelativeValues_);stageManualRelativeValues_->setPlainText(stage.value("manual_relative_values").toString());}
   stageManualRelativeHelp_->setVisible(useManual);stageManualRelativeValues_->setVisible(useManual);
-  stageManualRelativeHelp_->setText(needsManual?tr("⚠ 원자 수가 다른 구조입니다. 절대 전자에너지 차이로 상대에너지를 계산할 수 없습니다. 아래에 현재 반응 구조 순서대로 ΔG (kcal/mol)를 입력하세요."):tr("한 줄에 하나씩 ΔG (kcal/mol) 수치를 입력하세요. 현재 반응의 구조 순서에 대응합니다."));
+  stageManualRelativeHelp_->setText(needsManual?tr("⚠ 원자 수가 다른 구조입니다. 절대 전자에너지 차이로 상대에너지를 계산할 수 없습니다. 구조별 입력을 켜서 원자 수가 다른 구조만 보정하거나, 아래에 모든 구조의 ΔG (kcal/mol)를 입력하세요."):tr("한 줄에 하나씩 ΔG (kcal/mol) 수치를 입력하세요. 현재 반응의 구조 순서에 대응합니다."));
   {QSignalBlocker blocked(stageNameEdit_);if(stageNameEdit_->text()!=stage["name"].toString())stageNameEdit_->setText(stage["name"].toString());} {QSignalBlocker blocked(stageReference_);stageReference_->clear();for(const auto& path:visible)stageReference_->addItem(labels.value(paths.indexOf(path)),path);stageReference_->setCurrentIndex(std::max(0,stageReference_->findData(stage["reference"].toString())));}
   {QSignalBlocker blocked(stageFigureCaptions_);if(stageFigureCaptions_->toPlainText()!=stage["figure_captions"].toString())stageFigureCaptions_->setPlainText(stage["figure_captions"].toString());}captions_->setEnabled(reactionStages_.isEmpty());captions_->setToolTip(tr("반응별 캡션은 구조 화면의 Figure · 캡션에서 입력합니다."));
   for(int i=0;i<4;++i){QSignalBlocker blocked(stageTableChecks_[i]);stageTableChecks_[i]->setChecked(stage.value(tableKeys[i]).toBool(i==0?includeAbsolute_->isChecked():true));}
@@ -292,7 +306,7 @@ void MainWindow::clearStageStructures(){
   if(QMessageBox::question(this,tr("이 목록 비우기"),tr("'%1' 반응에서 구조 %2개를 모두 제외할까요?\nGaussian 추출 데이터와 전체 구조 보관함은 유지됩니다.").arg(stage.value("name").toString()).arg(count))!=QMessageBox::Yes)return;
   const auto id=stageId(stage);
   stage["files"]=QJsonArray();stage["reference"]=QString();stage["figure_settings"]=QJsonObject();
-  stage["manual_relative_values"]=QString();
+  stage["manual_relative_values"]=QString();stage.remove("structure_relative_values");
   reactionStages_[activeStage_]=stage;
   preparedStageFigures_.remove(id);
   refreshStageNavigation();refreshDocumentModel();
@@ -309,7 +323,75 @@ void MainWindow::showExtractionDetails(){
 
 void MainWindow::updateStructureOrderButtons(){
   if(!stageGrid_||!files_)return;const int row=activeStage_>=0||activeStage_==-3?stageGrid_->currentRow():files_->currentRow();const int count=stageGrid_->rowCount();
+  if(auto* button=findChild<QPushButton*>("editStageStructureRelative"))button->setEnabled(!parsing_&&activeStage_>=0&&row>=0);
   if(auto* button=findChild<QPushButton*>("moveStructureUp"))button->setEnabled(!parsing_&&row>0);
   if(auto* button=findChild<QPushButton*>("moveStructureDown"))button->setEnabled(!parsing_&&row>=0&&row<count-1);
   if(auto* button=findChild<QPushButton*>("moveStructureTo"))button->setEnabled(!parsing_&&row>=0&&count>1);
+}
+
+bool MainWindow::stageStructureNeedsRelative(const QJsonObject& stage,const QString& path) const {
+  const auto members=stage.value("files").toArray();
+  auto reference=stage.value("reference").toString();
+  if(!members.contains(reference)&&!members.isEmpty())reference=members.first().toString();
+  const auto source=parsed_.value(path),ref=parsed_.value(reference);
+  return source&&ref&&!source->finalGeometry.empty()&&!ref->finalGeometry.empty()
+    &&source->finalGeometry.size()!=ref->finalGeometry.size();
+}
+
+QStringList MainWindow::stageRelativeRow(const QJsonObject& stage,const QString& path,const QStringList& headers,QStringList row) const {
+  const bool incompatible=stageStructureNeedsRelative(stage,path);
+  while(row.size()<headers.size())row.append("N/A");
+  if(incompatible)for(int col=1;col<row.size();++col)row[col]="N/A";
+  const auto values=stage.value("structure_relative_values").toObject().value(path).toObject();
+  for(int col=1;col<headers.size();++col)if(values.contains(headers[col])){
+    bool valid=false;const double value=values.value(headers[col]).toString().toDouble(&valid);
+    row[col]=valid&&std::isfinite(value)?si::formatNumber(value,2,0):tr("입력 필요");
+  }
+  const auto gibbs=QStringLiteral("ΔG^{c}");const int gibbsCol=headers.indexOf(gibbs);
+  QStringList terms{"E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}"};
+  for(const auto& optional:QStringList{"Δ_{Dispersion}","Δ_{Complexation}"})if(headers.contains(optional))terms.append(optional);
+  const bool termChanged=std::any_of(terms.begin(),terms.end(),[&](const auto& term){return values.contains(term);});
+  if(gibbsCol>0&&!values.contains(gibbs)&&(incompatible||termChanged)){
+    bool complete=true;double sum=0;
+    for(const auto& term:terms){const int col=headers.indexOf(term);bool valid=false;double value=0;
+      if(values.contains(term))value=values.value(term).toString().toDouble(&valid);
+      else if(col>0)value=row.value(col).toDouble(&valid);
+      if(!valid||!std::isfinite(value)){complete=false;break;}sum+=value;
+    }
+    row[gibbsCol]=complete&&std::isfinite(sum)?si::formatNumber(sum,2,0):incompatible?tr("입력 필요"):QStringLiteral("N/A");
+  }
+  return row;
+}
+
+void MainWindow::editStageStructureRelative(){
+  const int selectedStage=activeStage_,row=stageGrid_->currentRow();
+  if(parsing_||selectedStage<0||selectedStage>=reactionStages_.size()||row<0)return;
+  const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();
+  auto stage=reactionStages_[selectedStage].toObject();
+  const auto previous=stage.value("structure_relative_values").toObject().value(path).toObject();
+  QDialog dialog(this);dialog.setObjectName("stageStructureRelativeDialog");dialog.setWindowTitle(tr("선택 구조의 상대 에너지·열역학"));
+  auto* layout=new QVBoxLayout(&dialog);
+  auto* help=new QLabel(tr("반응: %1\n구조: %2\n모든 값의 단위: kcal/mol. 입력한 항목만 이 반응의 이 구조에 적용합니다.\n빈칸은 자동값을 사용합니다. 원자 수가 기준 구조와 다르면 자동값 대신 N/A를 표시합니다.\nΔG를 비우면 ETotal + ΔZ₀ + ΔΔEThermal − TΔS와 선택된 추가 보정값을 합산합니다.").arg(stage["name"].toString(),stageGrid_->item(row,0)->text()),&dialog);
+  help->setWordWrap(true);layout->addWidget(help);
+  const QStringList keys{"ΔE","ΔΔE^{a}","E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}","Δ_{Dispersion}","Δ_{Complexation}","ΔG^{c}"};
+  const QStringList titles{"ΔE","ΔΔE","ETotal","ΔZ₀ (ZPE)","ΔΔEThermal","−TΔS","Dispersion","Complexation","ΔG"};
+  auto* form=new QFormLayout;QVector<QLineEdit*> edits;
+  for(int i=0;i<keys.size();++i){auto* edit=new QLineEdit(previous.value(keys[i]).toString(),&dialog);edit->setObjectName("stageRelativeValue_"+QString::number(i));edit->setPlaceholderText(tr("비우면 자동"));
+    if((i==6&&!includeDispersion_->isChecked())||(i==7&&!includeComplexation_->isChecked())){edit->setEnabled(false);edit->setToolTip(tr("에너지 설정에서 해당 보정 열을 포함하면 적용됩니다."));}
+    form->addRow(titles[i],edit);edits.append(edit);}
+  layout->addLayout(form);auto* error=new QLabel(&dialog);error->setObjectName("stageRelativeError");error->setWordWrap(true);layout->addWidget(error);
+  auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel|QDialogButtonBox::Reset,&dialog);layout->addWidget(buttons);
+  connect(buttons->button(QDialogButtonBox::Reset),&QPushButton::clicked,&dialog,[&]{for(auto* edit:edits)edit->clear();});
+  connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+  QJsonObject values;
+  connect(buttons,&QDialogButtonBox::accepted,&dialog,[&]{QJsonObject draft;
+    for(int i=0;i<edits.size();++i){const auto text=edits[i]->text().trimmed();if(text.isEmpty())continue;
+      bool valid=false;const double value=text.toDouble(&valid);if(!valid||!std::isfinite(value)){error->setText(tr("%1: 유효한 숫자를 입력하세요.").arg(titles[i]));edits[i]->setFocus();return;}draft.insert(keys[i],text);
+    }values=draft;dialog.accept();
+  });
+  if(dialog.exec()!=QDialog::Accepted)return;
+  auto overrides=stage.value("structure_relative_values").toObject();
+  if(values.isEmpty())overrides.remove(path);else overrides.insert(path,values);
+  stage["structure_relative_values"]=overrides;stage["structure_relative_enabled"]=true;stage["manual_relative_enabled"]=false;
+  reactionStages_[selectedStage]=stage;refreshDocumentModel();
 }

@@ -585,6 +585,23 @@ QStringList MainWindow::preflightErrors() const{
   for(int index=0;index<reactionStages_.size();++index){
     const auto stage=reactionStages_[index].toObject();
     if(!stage.value("relative").toBool(true))continue;
+    if(stage.value("structure_relative_enabled").toBool(false)){
+      QStringList headers{QString(),"E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}"};
+      if(includeDispersion_->isChecked())headers.append("Δ_{Dispersion}");
+      if(includeComplexation_->isChecked())headers.append("Δ_{Complexation}");headers.append("ΔG^{c}");
+      const auto overrides=stage.value("structure_relative_values").toObject();
+      for(const auto& member:stage.value("files").toArray()){
+        const auto path=member.toString();const auto values=overrides.value(path).toObject();
+        for(auto it=values.begin();it!=values.end();++it){bool valid=false;const double value=it.value().toString().toDouble(&valid);
+          if(!valid||!std::isfinite(value))errors.append(tr("반응 '%1', %2: %3에 유효한 숫자를 입력하세요.").arg(stage["name"].toString(),QFileInfo(path).fileName(),it.key()));
+        }
+        if(stageStructureNeedsRelative(stage,path)){
+          const auto row=stageRelativeRow(stage,path,headers,QStringList{QFileInfo(path).fileName()});bool valid=false;const double value=row.last().toDouble(&valid);
+          if(!valid||!std::isfinite(value))errors.append(tr("반응 '%1', %2: 원자 수가 다른 구조의 ΔG 또는 열역학적 합산 성분을 입력하세요.").arg(stage["name"].toString(),QFileInfo(path).fileName()));
+        }
+      }
+      continue;
+    }
     const bool manual=stageNeedsManualRelative(index)||stage.value("manual_relative_enabled").toBool(false);
     if(!manual)continue;
     const auto members=stage.value("files").toArray();if(members.isEmpty())continue;
@@ -996,8 +1013,8 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     const QString key=table.section==si::DocumentSection::AbsoluteEnergy?"absolute":table.section==si::DocumentSection::RelativeEnergy?"relative":table.section==si::DocumentSection::SpinDensity?"spin":table.section==si::DocumentSection::SelectedGeometry?"geometry":"";
     if(key=="geometry"&&geometryIndices_->toPlainText().trimmed().isEmpty())continue; // Recalculate automatically for each reaction stage.
     if(key.isEmpty()||!canSplit(table))continue;
-    {if(!stage.value(key).toBool(key=="absolute"?includeAbsolute_->isChecked():true))continue;const auto members=stage["files"].toArray();auto split=table;split.stageId=stage.value("id").toString(stage["name"].toString());split.rows.clear();std::vector<si::EnergyRecord> selected;
-      for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i])split.rows.append(row);}else split.rows.append(table.rows[i]);if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
+    {if(!stage.value(key).toBool(key=="absolute"?includeAbsolute_->isChecked():true))continue;const auto members=stage["files"].toArray();auto split=table;split.stageId=stage.value("id").toString(stage["name"].toString());split.rows.clear();QStringList splitPaths;std::vector<si::EnergyRecord> selected;
+      for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i]){split.rows.append(row);splitPaths.append(member.toString());}}else {split.rows.append(table.rows[i]);splitPaths.append(member.toString());}if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
       if(split.rows.isEmpty())continue;
       split.caption=stage["name"].toString()+": "+table.caption;
       if(key=="spin"&&spinIndices_->toPlainText().trimmed().isEmpty()&&!selected.empty()){
@@ -1042,7 +1059,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
           split.rows.append(row);
         }
       }
-      if(key=="relative"&&(stage.value("manual_relative_enabled").toBool(false)||(sourceStageIndex>=0&&stageNeedsManualRelative(sourceStageIndex)))){
+      if(key=="relative"&&!stage.value("structure_relative_enabled").toBool(false)&&(stage.value("manual_relative_enabled").toBool(false)||(sourceStageIndex>=0&&stageNeedsManualRelative(sourceStageIndex)))){
         const auto values=lines(stage.value("manual_relative_values").toString());
         split.headers={tr("Structure"),tr("ΔG (kcal/mol)")};
         split.caption=stage["name"].toString()+tr(": Manually assigned relative Gibbs energies (kcal/mol).");
@@ -1060,6 +1077,12 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
         split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
         for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}
         split.caption+=tr(" Reference: %1.").arg(QString::fromStdString(selected[ref].name));
+      }
+      if(key=="relative"&&stage.value("structure_relative_enabled").toBool(false)){
+        split.hasManualRelativeValues=!stage.value("structure_relative_values").toObject().isEmpty();
+        if(split.hasManualRelativeValues)split.caption+=tr(" Selected energy and thermodynamic values were manually assigned.");
+        for(int row=0;row<split.rows.size()&&row<splitPaths.size();++row)
+          split.rows[row]=stageRelativeRow(stage,splitPaths[row],split.headers,split.rows[row]);
       }
       tables.append(split);
     }
