@@ -381,6 +381,23 @@ struct Phase1Smoke {
       QFileInfo(linkedSpe).absoluteFilePath()==QFileInfo(singlePoint).absoluteFilePath()&&
       stored.gaussianSnapshots.contains(linkedSpe),
       "both frequency and SPE are embedded");
+    // An old project snapshot must not hide corrected source data when the
+    // Gaussian output is available locally.
+    QFile updated(primary);if(!updated.open(QIODevice::ReadOnly))return false;
+    auto newOutput=updated.readAll();updated.close();
+    ok&=check(newOutput.contains("0.100000"),"live-source spin fixture located");
+    newOutput.replace("0.100000","0.888888");
+    if(!updated.open(QIODevice::WriteOnly|QIODevice::Truncate))return false;
+    updated.write(newOutput);updated.close();
+    {
+      MainWindow refreshed;
+      ok&=check(refreshed.loadProjectPath(project)&&waitForImport(refreshed),
+        "saved project reloads with available Gaussian source");
+      const auto live=refreshed.energyRecords();
+      ok&=check(live.size()==1&&!live[0].frequency.spinDensities.empty()&&
+        std::abs(live[0].frequency.spinDensities[0].spin-0.888888)<1e-9,
+        "fresh Gaussian spin values supersede stale embedded snapshots");
+    }
     ok&=check(QFile::remove(primary)&&QFile::remove(singlePoint),"original Gaussian files removed");
     MainWindow reopened;
     ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"offline project reopens");
