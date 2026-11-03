@@ -697,7 +697,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       for(const auto& record:records){
         const auto values=si::legacyAbsoluteEnergyValues(record);
         QStringList row{QString::fromStdString(record.name)};
-        for(int col=0;col<6;++col)row.append(number(values[col],col==0||col==1||col==5?8:3,precision));
+        for(int col=0;col<6;++col)row.append(number(values[col],2,0));
         table.rows.append(row);
       }
       model.tables.append(table);
