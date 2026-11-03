@@ -2,10 +2,20 @@
 param(
     [Parameter(Mandatory = $false)]
     [string]$PackagePath,
-    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$ProjectRoot
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    $scriptPath = $PSCommandPath
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+        $scriptPath = $MyInvocation.MyCommand.Path
+    }
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) {
+        throw "Unable to determine update script location. Supply -ProjectRoot explicitly."
+    }
+    $ProjectRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
+}
 $projectPath = [System.IO.Path]::GetFullPath($ProjectRoot)
 if (Get-Process -Name "SIGenerator" -ErrorAction SilentlyContinue) {
     throw "Close SIGenerator.exe before applying the update."
