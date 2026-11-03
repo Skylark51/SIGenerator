@@ -61,10 +61,16 @@ int main(int argc, char** argv) {
     ok&=check(prioritized.distances.size()==1&&prioritized.distances[0]==std::array<int,2>{3,4},"bond formation or cleavage outranks spectator stretching");
   }
   const auto boundedSpin=parser.parse(fixtures / "spin-block-boundaries.out");
-  ok &= check(boundedSpin.spinDensities.size()==2&&boundedSpin.spinDensities[0].atomIndex==1&&
-    boundedSpin.spinDensities[1].atomIndex==3&&std::abs(boundedSpin.spinDensities[0].spin-1.6)<1e-9&&
-    std::abs(boundedSpin.spinDensities[1].spin-0.4)<1e-9,
-    "last nonempty Mulliken block: hydrogen-summed data, D exponents, and explicit boundary without blank lines");
+  ok &= check(boundedSpin.spinDensities.size()==3&&boundedSpin.spinDensities[0].atomIndex==1&&
+    boundedSpin.spinDensities[1].atomIndex==2&&boundedSpin.spinDensities[2].atomIndex==3&&
+    std::abs(boundedSpin.spinDensities[0].spin-1.2)<1e-9&&
+    std::abs(boundedSpin.spinDensities[1].spin-0.4)<1e-9&&
+    std::abs(boundedSpin.spinDensities[2].spin-0.4)<1e-9,
+    "full atom-wise Mulliken populations take priority over hydrogen-summed values");
+  const auto restricted=parser.parse(fixtures / "restricted_singlet.out");
+  ok &= check(restricted.finalGeometry.size()==3&&restricted.spinDensities.size()==3&&
+    std::all_of(restricted.spinDensities.begin(),restricted.spinDensities.end(),[](const auto& atom){return atom.spin==0.0;}),
+    "restricted singlet has one zero Mulliken spin per geometry atom");
   ok &= check(ts.success, "TS fixture parses");
   ok &= check(ts.scfEnergy && std::abs(*ts.scfEnergy + 150.101010) < 1e-8, "TS SCF energy");
   ok &= check(ts.spinDensities.size()==2, "TS Mulliken spin density count");
@@ -160,11 +166,24 @@ int main(int argc, char** argv) {
   ok&=check(validation.rows.front()[4]=="1"&&validation.rows.front()[5]=="-123.45"&&validation.rows.front()[6]=="2.012","validation table");
 
   si::SIDocumentModel xyzModel;
-  xyzModel.coordinates.append({"A",geometry,0,1,-101.0});xyzModel.coordinates.append({"B",geometry,-1,3,{}});
+  auto preciseGeometry=geometry;preciseGeometry[0].xyz[0]=1.23456789012345;
+  xyzModel.coordinates.append({"A",preciseGeometry,0,1,-101.0});xyzModel.coordinates.append({"B",geometry,-1,3,{}});
   QString error;const auto xyzPath=temporary.filePath("structures.xyz");
   ok&=check(si::XyzWriter::write(xyzPath,xyzModel,&error),"XYZ write");
-  QFile xyz(xyzPath);if(!xyz.open(QIODevice::ReadOnly))return 1;const auto xyzText=xyz.readAll().replace("\r\n","\n");
-  ok&=check(xyzText.startsWith("4\nA | charge=0 | multiplicity=1 | E_SPE=-101.00000000 Eh\nH")&&xyzText.contains("1.000000")&&xyzText.contains("4\nB | charge=-1 | multiplicity=3 | E_SPE=N/A Eh"),"plain-text multiframe XYZ");
+  QFile xyz(xyzPath);if(!xyz.open(QIODevice::ReadOnly))return 1;const auto xyzText=QString::fromUtf8(xyz.readAll().replace("\r\n","\n"));
+  const auto xyzLines=xyzText.split('\n',Qt::SkipEmptyParts);
+  int offset=0,frames=0;bool completeFrames=true;
+  while(offset<xyzLines.size()){
+    bool numeric=false;const int atomCount=xyzLines[offset].toInt(&numeric);
+    if(!numeric||atomCount!=4||offset+atomCount+2>xyzLines.size()){completeFrames=false;break;}
+    for(int index=0;index<atomCount;++index)
+      completeFrames&=xyzLines[offset+2+index].simplified().split(' ').size()==4;
+    offset+=atomCount+2;++frames;
+  }
+  ok&=check(completeFrames&&frames==2&&offset==xyzLines.size()&&
+    xyzText.startsWith("4\nA | charge=0 | multiplicity=1 | E_SPE=-101.00000000 Eh\nH")&&
+    xyzText.contains("1.23456789012345")&&xyzText.contains("4\nB | charge=-1 | multiplicity=3 | E_SPE=N/A Eh"),
+    "all XYZ frames contain the full atom list and lossless coordinates");
 
   // The extracted Gaussian data must survive when the original output is gone.
   const auto snapshot=si::GaussianSnapshot::encode(metadata);
