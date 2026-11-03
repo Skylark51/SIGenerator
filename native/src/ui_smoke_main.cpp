@@ -536,11 +536,11 @@ struct Phase1Smoke {
     for(int index=0;index<2;++index){
       const auto path=folder.filePath(QString("other%1-freq.out").arg(index));QFile file(path);
       if(!file.open(QIODevice::WriteOnly))return false;
-      file.write(QString(" # opt freq UB3LYP/Def2-SVP\\n\\n Charge = 0 Multiplicity = 3\\n SCF Done: E(UB3LYP) = -101.0 A.U.\\n"
-        " Standard orientation:\\n -----\\n Center Atomic Atomic Coordinates\\n Number Number Type X Y Z\\n -----\\n"
-        " 1 8 0 0 0 0\\n 2 6 0 1.4 0 0\\n 3 1 0 0 0 %1\\n -----\\n"
-        " Mulliken charges and spin densities:\\n 1 O 0.000 0.6543\\n 2 C 0.000 0.2345\\n 3 H 0.000 0.1111\\n"
-        " Sum of Mulliken charges = 0\\n Normal termination of Gaussian 16\\n").arg(index?1.7:1.0).toUtf8());
+      file.write(QString(" # opt freq UB3LYP/Def2-SVP\n\n Charge = 0 Multiplicity = 3\n SCF Done: E(UB3LYP) = -101.0 A.U.\n"
+        " Standard orientation:\n -----\n Center Atomic Atomic Coordinates\n Number Number Type X Y Z\n -----\n"
+        " 1 8 0 0 0 0\n 2 6 0 1.4 0 0\n 3 1 0 0 0 %1\n -----\n"
+        " Mulliken charges and spin densities:\n 1 O 0.000 0.6543\n 2 C 0.000 0.2345\n 3 H 0.000 0.1111\n"
+        " Sum of Mulliken charges = 0\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
       file.close();secondReaction.append(path);
     }
     auto allPaths=paths;allPaths.append(secondReaction);
