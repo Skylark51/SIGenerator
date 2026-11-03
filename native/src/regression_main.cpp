@@ -1,6 +1,7 @@
 #include "si/GaussianParser.hpp"
 #include "si/DocumentModel.hpp"
 #include "si/SIModel.hpp"
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
