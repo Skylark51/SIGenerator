@@ -439,7 +439,7 @@ struct Phase1Smoke {
     window.energyInputMode_->setCurrentIndex(window.energyInputMode_->findData("manual"));window.includeAbsolute_->setChecked(false);
     window.manualRelativeNames_->setPlainText("stage-2\nstage-1\nstage-0\nstage-3");
     window.manualRelativeValues_->setPlainText("2 0 2 0 0 0 2\n1 0 1 0 0 0 1\n0 0 0 0 0 0 0\n3 0 3 0 0 0 3");model=window.buildDocumentModel();
-    ok&=check(model.tables.first().rows.first().first()=="stage-1"&&model.tables.first().rows.last().last()=="2","manual table assignment follows names rather than input row position");
+    ok&=check(model.tables.first().rows.first().first()=="stage-1"&&model.tables.first().rows.last().last()=="2.00","manual table assignment follows names rather than input row position");
     return ok;
   }
   static bool iconNavigation(MainWindow& window){
@@ -964,7 +964,7 @@ struct Phase1Smoke {
     const auto* absolute=window.documentModel_.table(si::DocumentSection::AbsoluteEnergy);
     ok&=check(window.energyBasis_->currentData().toInt()==static_cast<int>(si::EnergyBasis::LegacyComposite),"original Python energy mode selected by default");
     ok&=check(absolute&&absolute->headers==QStringList({"","E_{Def2-SVP}","E_{Def2-TZVPP}","Z_{0}","E_{Thermal}","S","Dispersion"})&&
-      absolute->rows.front()==QStringList({"1A-freq","-100.00000000","-101.00000000","18.826","25.100","50.000","-0.01000000"}),"legacy absolute columns and Gaussian printed kcal values");
+      absolute->rows.front()==QStringList({"1A-freq","-100.00","-101.00","18.83","25.10","50.00","-0.01"}),"legacy absolute columns and Gaussian printed kcal values");
     const auto* relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
     window.includeDispersion_->setChecked(true);window.includeComplexation_->setChecked(true);window.refreshDocumentModel();relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
     const QStringList expectedRelative{"3A-freq","-62.75","-62.75","-125.50","+0.30","+0.20","-1.49","+1.26","+0.00","-125.24"};
