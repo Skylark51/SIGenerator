@@ -539,7 +539,7 @@ struct Phase1Smoke {
     const auto* absolute=window.documentModel_.table(si::DocumentSection::AbsoluteEnergy);
     const auto* relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
     ok&=check(absolute&&absolute->rows[0].value(1)=="-100.00"&&
-      relative&&relative->rows[0].back().endsWith(".00"),
+      relative&&relative->rows[0].value(1)=="0.00",
       "SI absolute and relative energies retain exactly two decimal places");
     auto* table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
     const auto* originalSpin=window.documentModel_.table(si::DocumentSection::SpinDensity);
