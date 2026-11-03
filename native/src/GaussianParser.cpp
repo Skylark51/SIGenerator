@@ -57,9 +57,15 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
   GaussianResult result; result.path = path;
   std::ifstream input(path, std::ios::binary);
   if (!input) { result.success = false; result.reason = "cannot open file"; return result; }
-  std::string line, route, activeRoute, activeIrcDirection; bool collectingRoute = false, inOrientation = false, inSpin = false;
+  std::string line, route, activeRoute, activeIrcDirection; bool collectingRoute = false, inOrientation = false, inSpin = false, hydrogenSummedSpin = false, restrictedScf = false;
   std::optional<int> activeIrcIndex;
-  int orientationDashes = 0; std::vector<Atom> geometry, lastGeometry; std::vector<SpinDensity> spins, lastSpins;
+  int orientationDashes = 0; std::vector<Atom> geometry, lastGeometry;
+  std::vector<SpinDensity> spins, fullSpins, summedSpins;
+  const auto finishSpinBlock=[&]{
+    if(spins.empty())return;
+    if(hydrogenSummedSpin)summedSpins=spins;
+    else fullSpins=spins;
+  };
   bool entropyTable=false, readingZeroPointKcal=false;
   static const std::regex versionPattern(R"(Gaussian\s+(\d{2})(?:\s*:\s*[^\s,]+)?\s*[, ]*\s*(?:Revision\s+|G\d{2}Rev)([A-Za-z]\.\d+))",std::regex::icase);
   static const std::regex programPattern(R"(Gaussian\s+(\d{2})\s*[:,])",std::regex::icase);
@@ -98,7 +104,11 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
     }
     if(contains(low,"r6disp"))result.dispersion=numberAfter(low,"r6disp");
     if (contains(low, "normal termination")) result.normalTermination = true;
-    if (contains(line, "SCF Done:")) { result.scfEnergy = numberAfter(line, "="); if(activeIrcIndex && result.scfEnergy) { result.ircPoints.push_back({*activeIrcIndex,activeIrcDirection,result.scfEnergy}); activeIrcIndex.reset(); } }
+    if (contains(line, "SCF Done:")) { result.scfEnergy = numberAfter(line, "=");
+      const auto marker=line.find("E(");
+      if(marker!=std::string::npos&&marker+2<line.size())
+        restrictedScf=(line[marker+2]=='R');
+      if(activeIrcIndex && result.scfEnergy) { result.ircPoints.push_back({*activeIrcIndex,activeIrcDirection,result.scfEnergy}); activeIrcIndex.reset(); } }
     if (contains(line, "Zero-point correction=")) result.zeroPointCorrection = numberAfter(line, "=");
     if (contains(low,"zero-point vibrational energy")) {
       result.zeroPointKcal=numberBefore(low,"(kcal/mol)");
@@ -122,8 +132,8 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
     if (contains(low, "standard orientation:") || contains(low, "input orientation:")) { inOrientation = true; orientationDashes = 0; geometry.clear(); continue; }
     if (inOrientation) { if (dashed(line)) { ++orientationDashes; if (orientationDashes >= 3) { if (!geometry.empty()) lastGeometry = geometry; inOrientation = false; } continue; } if (orientationDashes >= 2) { const auto item = words(line); if (item.size() >= 6 && std::all_of(item[0].begin(), item[0].end(), ::isdigit)) { const int atomic = std::stoi(item[1]); const auto x = parseNumber(item[3]); const auto y = parseNumber(item[4]); const auto z = parseNumber(item[5]); if (atomic > 0 && x && y && z) geometry.push_back({atomic, elementSymbol(atomic), {*x, *y, *z}}); } } }
     if (contains(low, "mulliken charges and spin densities")) {
-      if (inSpin && !spins.empty()) lastSpins = spins;
-      inSpin = true; spins.clear(); continue;
+      if(inSpin)finishSpinBlock();
+      inSpin=true;hydrogenSummedSpin=contains(low,"hydrogens summed");spins.clear();continue;
     }
     if (inSpin) {
       const auto item = words(line);
@@ -136,17 +146,26 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
         const int id = std::stoi(item[0]);
         if (id > 0 && (spins.empty() || id > spins.back().atomIndex))
           spins.push_back({id, item[1], *charge, *spin});
-        else { if (!spins.empty()) lastSpins = spins; inSpin = false; }
+        else { finishSpinBlock(); inSpin = false; }
       } else if (!spins.empty() || (!clean.empty() &&
                  !((item.size()==1 && item[0]=="1") ||
                    (item.size()==2 && item[0]=="1" && item[1]=="2")))) {
-        if (!spins.empty()) lastSpins = spins;
+        finishSpinBlock();
         inSpin = false;
       }
     }
   }
-  if (collectingRoute) route = activeRoute; if (inSpin && !spins.empty()) lastSpins = spins;
-  result.route = route; result.finalGeometry = std::move(lastGeometry); result.spinDensities = std::move(lastSpins); result.spinSourcePath = path;
+  if(collectingRoute)route=activeRoute;
+  if(inSpin)finishSpinBlock();
+  result.route=route;
+  result.finalGeometry=std::move(lastGeometry);
+  result.spinDensities=fullSpins.empty()?std::move(summedSpins):std::move(fullSpins);
+  // A restricted singlet has zero Mulliken spin at every atom even when
+  // Gaussian omits the spin-population section altogether.
+  if(result.spinDensities.empty()&&result.multiplicity==1&&restrictedScf&&!result.finalGeometry.empty())
+    for(size_t index=0;index<result.finalGeometry.size();++index)
+      result.spinDensities.push_back({static_cast<int>(index+1),result.finalGeometry[index].symbol,0.0,0.0});
+  result.spinSourcePath=path;
   const auto fileUtf8=path.filename().u8string();
   const auto routeLower = lower(route), fileLower = lower(std::string(fileUtf8.begin(),fileUtf8.end()));
   result.basisLevel = contains(routeLower, "tzvpp") || contains(fileLower, "tzvpp") ? "TZVPP" : (contains(routeLower, "svp") || contains(fileLower, "svp") ? "SVP" : "unknown");
