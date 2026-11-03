@@ -1183,6 +1183,40 @@ bool figureWorkflowSmoke(){
   for(const auto& example:QVector<QPair<QString,QString>>{{"1FCR2","^{1}F_{CR}2"},{"3ERC2","^{3}E_{RC}2"},{"1DP32","^{1}D_{P3}2"}})
     ok&=check(renderLabel(example.first)==renderLabel(example.second),"numbered CR/RC/P labels render with the same Figure subscripts as explicit markup");
 
+  // Figure-only hydrogen filtering must preserve the original atom IDs and remove attached bonds.
+  {
+    FigureSetupDialog hydrogenDialog({structures.front()},{paths.front()},{});
+    auto* hide=hydrogenDialog.findChild<QCheckBox*>("hideFigureHydrogens");
+    auto* keep=hydrogenDialog.findChild<QComboBox*>("figureHydrogenKeep0");
+    auto* viewer=hydrogenDialog.findChild<MoleculeViewWidget*>("figureView0");
+    ok&=check(hide&&keep&&viewer&&keep->count()==4&&!hide->isChecked(),"Figure hydrogen controls offer all H indices and default to showing all");
+    if(hide&&keep&&viewer){
+      const auto all=viewer->renderMolecule(QSize(480,400));
+      hide->setChecked(true);
+      const auto none=viewer->renderMolecule(QSize(480,400));
+      keep->setCurrentIndex(keep->findData(5));
+      const auto retained=viewer->renderMolecule(QSize(480,400));
+      ok&=check(all!=none&&none!=retained&&all!=retained,"all H, no H, and only H(5) render differently");
+      auto expectedImage=[&](int count){
+        MoleculeViewWidget expected;
+        expected.setRenderStyle(viewer->renderStyle());
+        expected.setMolecule(std::vector<si::Atom>(geometry.begin(),geometry.begin()+count),{});
+        expected.setAtomIndicesVisible(false);
+        expected.setCameraState(viewer->cameraState());
+        return expected.renderMolecule(QSize(480,400));
+      };
+      ok&=check(none==expectedImage(4)&&retained==expectedImage(5),"hidden H and their bonds are removed without changing heavy atoms or retained H");
+      const auto saved=hydrogenDialog.settings();
+      ok&=check(saved.value("hide_hydrogens").toBool()&&saved.value("retained_hydrogens").toObject().value(paths.front()).toInt()==5,"C–H activation hydrogen selection persists by source path");
+      hydrogenDialog.findChild<QPushButton*>("nextFigureGroup")->click();
+      FigureSetupDialog restored({structures.front()},{paths.front()},saved);
+      auto* restoredKeep=restored.findChild<QComboBox*>("figureHydrogenKeep0");
+      ok&=check(restoredKeep&&restoredKeep->currentData().toInt()==5&&restored.findChild<QCheckBox*>("hideFigureHydrogens")->isChecked(),"H visibility restored with Figure settings");
+      restored.findChild<QPushButton*>("nextFigureGroup")->click();
+      ok&=check(hydrogenDialog.figures().front().png==restored.figures().front().png,"exported Figure PNG honors saved H visibility");
+    }
+  }
+
   FigureSetupDialog dialog(structures,paths,{});dialog.show();QTest::qWait(100);
   auto visibleViews=[&]{QVector<MoleculeViewWidget*> result;for(auto* view:dialog.findChildren<MoleculeViewWidget*>())if(view->isVisible())result.append(view);return result;};
   auto views=visibleViews();ok&=check(views.size()==3,"first Figure group has three molecules");

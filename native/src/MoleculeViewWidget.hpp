@@ -23,6 +23,7 @@ public:
   [[nodiscard]] InteractionMode interactionMode() const { return mode_; }
   void setAtomIndicesVisible(bool visible);
   [[nodiscard]] bool atomIndicesVisible() const { return showIndices_; }
+  void setHydrogenVisibility(bool hideHydrogens, int retainedHydrogenIndex = 0);
   void resetView();
   void setCaptureFraming(bool enabled) { captureFraming_=enabled;update(); }
   void setRenderStyle(const QJsonObject& style);
@@ -55,6 +56,7 @@ private:
   QRect captureRect() const;
   double atomRadius(const si::Atom& atom) const;
   void paintScene(QPainter& painter, QSize size, bool clean) const;
+  [[nodiscard]] bool atomVisible(int atomIndex) const;
   [[nodiscard]] int pickAtom(const QPointF& position) const;
   void rebuildBonds();
   void handleClick(const QPointF& position);
@@ -69,6 +71,8 @@ private:
   QVector<int> selectedAtoms_;
   InteractionMode mode_{InteractionMode::View};
   bool showIndices_{true};
+  bool hideHydrogens_{};
+  int retainedHydrogenIndex_{};
   bool captureFraming_{};
   QPoint lastMouse_;
   bool dragging_{};
