@@ -472,6 +472,15 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   watcher->setFuture(QtConcurrent::run([cache,paths,restoredSnapshots,restoredPairedPaths](QPromise<Result>& promise){
     promise.setProgressRange(0,paths.size());
     auto parse=[cache,&restoredSnapshots](const QString& path)->std::shared_ptr<const si::GaussianResult>{
+      // Re-read accessible Gaussian outputs with the current parser. Older
+      // project snapshots may contain partial hydrogen-summed spin data.
+      // The saved snapshot remains a fallback for portable/offline projects.
+      if(QFileInfo::exists(path)){
+        try{
+          const auto fresh=cache->get(path.toStdWString());
+          if(fresh&&fresh->success)return fresh;
+        }catch(const std::exception&){/* Fall back to the stored snapshot. */}
+      }
       if(const auto packed=restoredSnapshots.value(path);packed.isObject()){
         si::GaussianResult saved;
         if(si::GaussianSnapshot::decode(packed.toObject(),&saved))
