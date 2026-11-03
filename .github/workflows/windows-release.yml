@@ -59,7 +59,12 @@ jobs:
           New-Item -ItemType Directory -Path $target -Force | Out-Null
           Copy-Item dist/SIGenerator.exe $target/
           Copy-Item dist/Qt6Core.dll $target/
-          & ./native/update-local.ps1 -PackagePath ./SI-Generator-Windows-x64.zip -ProjectRoot $target
+          $scriptDirectory = Join-Path $target "native"
+          New-Item -ItemType Directory -Path $scriptDirectory -Force | Out-Null
+          $scriptUnderTest = Join-Path $scriptDirectory "update-local.ps1"
+          Copy-Item native/update-local.ps1 $scriptUnderTest
+          $package = (Resolve-Path ./SI-Generator-Windows-x64.zip).Path
+          & $scriptUnderTest -PackagePath $package
           if (-not (Test-Path (Join-Path $target "SIGenerator.exe"))) { throw "Patched EXE missing" }
           if (-not (Get-ChildItem (Join-Path $target "backups") -Directory -Filter "runtime-*" |
               Where-Object { Test-Path (Join-Path $_.FullName "SIGenerator.exe") })) {
