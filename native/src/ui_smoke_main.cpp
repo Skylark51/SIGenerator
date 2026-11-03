@@ -549,9 +549,30 @@ struct Phase1Smoke {
       "energy, spin and geometry use per-quantity precision despite a legacy one-digit setting");
     ok&=check(table&&table->rows.size()==2&&table->headers.contains("C(1)-H(4) (Å)")&&!table->caption.contains("RMSD")&&!table->caption.contains("Automatically suggested"),"empty geometry input produces automatic reaction distance table");
     ok&=check(window.geometryIndices_->toPlainText().isEmpty(),"automatic suggestions preserve empty input for recalculation");
+    const auto spinWithNumbers=*originalSpin;
+    const auto geometryWithNumbers=*table;
+    window.spinAtomNumbers_->setChecked(false);window.refreshDocumentModel();
+    auto* spinWithoutNumbers=window.documentModel_.table(si::DocumentSection::SpinDensity);
+    table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
+    ok&=check(spinWithoutNumbers&&spinWithoutNumbers->headers[1]=="C"&&spinWithoutNumbers->rows==spinWithNumbers.rows&&table&&table->headers==geometryWithNumbers.headers,"spin numbers toggle independently without changing values");
+    window.geometryAtomNumbers_->setChecked(false);window.refreshDocumentModel();
+    table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
+    ok&=check(table&&table->headers.contains("C-H (Å)")&&table->rows==geometryWithNumbers.rows,"automatic geometry can hide numbers without changing values");
+    const auto settingsPath=folder.filePath("atom-numbers.json");QString settingsError;ProjectState settings;
+    ok&=check(window.saveProjectToPath(settingsPath)&&ProjectStore::load(settingsPath,&settings,&settingsError)&&!settings.spinAtomNumbers&&!settings.geometryAtomNumbers,"hidden atom numbers survive project save");
+    {MainWindow reopened;ok&=check(reopened.loadProjectPath(settingsPath)&&!reopened.spinAtomNumbers_->isChecked()&&!reopened.geometryAtomNumbers_->isChecked(),"atom number options restored in UI");waitForImport(reopened);}
+    QFile legacy(settingsPath);
+    if(legacy.open(QIODevice::ReadOnly)){
+      auto json=QJsonDocument::fromJson(legacy.readAll()).object();legacy.close();
+      for(const auto& key:QStringList{"spin_settings","geometry_settings"}){auto section=json[key].toObject();section.remove("show_atom_numbers");json[key]=section;}
+      if(legacy.open(QIODevice::WriteOnly|QIODevice::Truncate)){legacy.write(QJsonDocument(json).toJson());legacy.close();}
+      ok&=check(ProjectStore::load(settingsPath,&settings,&settingsError)&&settings.spinAtomNumbers&&settings.geometryAtomNumbers,"legacy projects retain visible numbers by default");
+    }else ok=false;
     window.geometryIndices_->setPlainText("1 2 3");window.refreshDocumentModel();
     table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
     ok&=check(table&&table->headers.size()==2&&table->headers[1].contains("°")&&!table->caption.contains("RMSD"),"manual geometry overrides automatic suggestions");
+    ok&=check(table&&table->headers[1]=="C-C-O (°)","manual geometry also hides atom numbers");
+    window.spinAtomNumbers_->setChecked(true);window.geometryAtomNumbers_->setChecked(true);
     window.geometryIndices_->clear();window.parsePaths({paths.front()});if(!waitUntil([&]{return !window.parsing_;}))return false;
     window.refreshDocumentModel();
     ok&=check(!window.documentModel_.table(si::DocumentSection::SelectedGeometry)&&!window.geometryAutoInfo_->text().isEmpty(),"single structure shows explanation instead of automatic table");
@@ -584,6 +605,12 @@ struct Phase1Smoke {
       else ++spinTables;
     }
     ok&=check(geometryTables==2&&spinTables==2,"automatic spin and geometry tables are generated separately for reactions with different atom counts");
+    window.spinAtomNumbers_->setChecked(false);window.geometryAtomNumbers_->setChecked(false);window.refreshDocumentModel();
+    for(const auto& scoped:window.documentModel_.tables){
+      if(scoped.section!=si::DocumentSection::SelectedGeometry&&scoped.section!=si::DocumentSection::SpinDensity)continue;
+      for(const auto& header:scoped.headers)ok&=check(!header.contains(QRegularExpression("\\(\\d+\\)")),"stage-specific automatic tables hide atom numbers");
+    }
+
     return ok;
   }
   static bool labelledFileImports(const QString& fixture){
@@ -732,7 +759,7 @@ struct Phase1Smoke {
     QFile generated(output);
     if(generated.open(QIODevice::ReadOnly)){
       const auto bytes=generated.readAll();
-      ok&=check(bytes.contains("CP1-2")&&!bytes.contains("TPADP-prtonated-for"),"generated SI DOCX contains hyphenated reaction labels instead of original filenames");
+      ok&=check(bytes.contains("P1-2</w:t>")&&!bytes.contains("TPADP-prtonated-for"),"generated SI DOCX contains hyphenated reaction labels instead of original filenames");
     }else ok=false;
     return ok;
   }

@@ -17,6 +17,16 @@ int main(int argc,char** argv){
     check(si::structureLabelMarkup(example.first)==example.second,"automatic structure label markup");
     check(si::structureLabelMarkup(example.second)==example.second,"label markup is idempotent");
   }
+  for(const auto& suffix:QStringList{"P1","P2","P3","HP","P1-2"}){
+    for(const auto& ending:QStringList{"","-TS"}){
+      const auto label="1A"+suffix+ending;
+      const auto markup="^{1}A_{"+suffix+"}"+ending;
+      check(si::structureLabelMarkup(label)==markup,"P/HP suffix and singlet multiplicity formatting");
+      check(si::structureLabelMarkup(markup)==markup,"P/HP markup is idempotent");
+      check(si::formattedTextHtml(markup)=="<sup>1</sup>A<sub>"+suffix+"</sub>"+ending,"P/HP HTML formatting");
+    }
+  }
+  check(si::structureLabelMarkup("5BP12")=="^{5}BP12","unrequested P12 suffix remains unchanged");
   const auto inputs=si::namedStructureInputs("(5DCR-TS file (1).out) (3DRC second.out)\n(1C\tthird.out)\tplain.out");
   check(inputs.size()==4&&inputs[0].label=="5DCR-TS"&&inputs[0].fileName=="file (1).out"&&inputs[1].label=="3DRC"&&inputs[2].label=="1C"&&inputs[3].label.isEmpty(),"paired input tokenization");
   const auto excel=si::namedStructureInputs("1A\t1-CoIII-Me3-freq.out\r\n1A-TS\t1-CoIII-Me3-ts-freq.out\r\n5DCR-TS\t\"공백 있는 (계산).out\"\n3DRC    file with spaces.out");
@@ -34,9 +44,13 @@ int main(int argc,char** argv){
   model.computationalDetails="Verified computational details at 298.15 K. E_SPE + (G_freq − E_freq).";model.referencesText="Reference 1";model.figureCaptions={"Reaction profile"};
   model.tables.append({si::DocumentSection::RelativeEnergy,"Markup _x ^x _{long} ^{c}",{"Structure","E_{Total}","ΔG"},{{"A","0.00","0.00"}},{1,2}});
   for(const auto& name:{QString("1C"),QString("5DCR-TS"),QString("3DRC")})model.tables[0].rows.append({name,"0.00","0.00"});
+  for(const auto& suffix:QStringList{"P1","P2","P3","HP"}){
+    model.tables[0].rows.append({"1A"+suffix,"0.00","0.00"});
+  }
   model.tables.append({si::DocumentSection::Validation,"Stationary-point validation of the calculated structures.",{"Structure","Imag. freq."},{{"A","0"}},{}});
   model.coordinates.append({"H_{2}O",{{8,"O",{0.0,0.0,0.0}},{1,"H",{0.9572,0.0,0.0}}}});
   for(const auto& name:{QString("1C"),QString("5DCR-TS"),QString("3DRC")})model.coordinates.append({name,model.coordinates.front().atoms});
+  for(const auto& suffix:QStringList{"P1","P2","P3","HP"})model.coordinates.append({"1A"+suffix,model.coordinates.front().atoms});
   const auto output=QDir::current().filePath("si-docx-smoke.docx");
   check(DocxWriter::writeDocument(output,model,&error),"DOCX write");
   QFile file(output);check(file.open(QIODevice::ReadOnly),"read package");const auto bytes=file.readAll();
@@ -74,6 +88,8 @@ int main(int argc,char** argv){
   const QByteArray subscriptCR="w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">CR</w:t>";
   const QByteArray subscriptRC="w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">RC</w:t>";
   check(document.count(superscript)==2&&document.count(subscriptCR)==2&&document.count(subscriptRC)==2&&document.count(">-TS</w:t>")==2,"tables and Cartesian names both use actual Word super/subscript runs and normal TS");
+  for(const auto& suffix:QList<QByteArray>{"P1","P2","P3","HP"})
+    check(document.count(QByteArray("w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">")+suffix+"</w:t>")==2,"P/HP use Word subscript in tables and coordinates");
   QString coordinateError;const auto coordinatePath=QDir::current().filePath("coordinates-label-smoke.docx");
   check(DocxWriter::writeCoordinates(coordinatePath,model,&coordinateError),"independent labelled coordinate DOCX");QFile coordinates(coordinatePath);
   check(coordinates.open(QIODevice::ReadOnly),"read labelled coordinates DOCX");const auto coordinateBytes=coordinates.readAll();

@@ -159,9 +159,11 @@ private:
   QTextEdit* manualRelativeValues_{};
   QTextEdit* spinIndices_{};
   QTextEdit* spinNames_{};
+  QCheckBox* spinAtomNumbers_{};
   QTextEdit* geometryIndices_{};
   QLabel* geometryAutoInfo_{};
   QTextEdit* geometryNames_{};
+  QCheckBox* geometryAtomNumbers_{};
   QTextEdit* captions_{};
   QLineEdit* mechanismName_{};
   QLineEdit* documentTitle_{};

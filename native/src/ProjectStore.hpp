@@ -18,8 +18,10 @@ struct ProjectState {
   QString manualRelativeValues;
   QString spinNames;
   QString spinIndices;
+  bool spinAtomNumbers{true};
   QString geometryNames;
   QString geometryIndices;
+  bool geometryAtomNumbers{true};
   QString captions;
   QJsonObject figureSettings;
   QJsonArray reactionStages;
