@@ -76,7 +76,7 @@ QString structureLabelMarkup(QString label) {
   static const QRegularExpression multiplicity(QStringLiteral("^(\\d+)(?=[A-Za-z])"));
   auto match=multiplicity.match(label);
   if(match.hasMatch())label.replace(0,match.capturedLength(),QStringLiteral("^{%1}").arg(match.captured(1)));
-  static const QRegularExpression suffix(QStringLiteral("(?<=[A-Za-z0-9}])(CR|RC|P[123](?:-[123])*|HP)(?=-TS$|$)"));
+  static const QRegularExpression suffix(QStringLiteral("(?<=[A-Za-z0-9}])(CR|RC|P[123]|HP)(?=\\d*(?:-\\d+)*(?:-TS)?$)"));
   match=suffix.match(label);
   if(match.hasMatch())label.replace(match.capturedStart(),match.capturedLength(),QStringLiteral("_{%1}").arg(match.captured(1)));
   return label;

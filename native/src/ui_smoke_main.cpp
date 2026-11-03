@@ -819,7 +819,7 @@ struct Phase1Smoke {
     QFile generated(output);
     if(generated.open(QIODevice::ReadOnly)){
       const auto bytes=generated.readAll();
-      ok&=check(bytes.contains("P1-2</w:t>")&&!bytes.contains("TPADP-prtonated-for"),"generated SI DOCX contains hyphenated reaction labels instead of original filenames");
+      ok&=check(bytes.contains("P1</w:t>")&&bytes.contains("-2</w:t>")&&!bytes.contains("TPADP-prtonated-for"),"generated SI DOCX contains hyphenated reaction labels instead of original filenames");
     }else ok=false;
     return ok;
   }
@@ -1180,6 +1180,9 @@ bool figureWorkflowSmoke(){
   for(int i=0;i<7;++i){auto atoms=geometry;atoms[2].xyz[2]=i*0.12;structures.append({QString("Structure %1").arg(i+1),atoms});paths.append(QString("structure-%1.out").arg(i));}
   auto renderLabel=[&](const QString& name){auto structure=structures.front();structure.structureName=name;FigureSetupDialog labelDialog({structure},{paths.front()},{});labelDialog.findChild<QPushButton*>("nextFigureGroup")->click();const auto png=labelDialog.figures().front().png;if(name=="5DCR-TS"&&qEnvironmentVariableIsSet("SI_FIGURE_SAMPLE_DIR")){const auto image=QImage::fromData(png);QImage white(image.size(),QImage::Format_RGB32);white.fill(Qt::white);QPainter painter(&white);painter.drawImage(0,0,image);painter.end();white.save(qEnvironmentVariable("SI_FIGURE_SAMPLE_DIR")+"/label-figure.png");}return png;};
   ok&=check(renderLabel("5DCR-TS")==renderLabel("^{5}D_{CR}-TS"),"Figure labels render plain shorthand and explicit super/subscript identically");
+  for(const auto& example:QVector<QPair<QString,QString>>{{"1FCR2","^{1}F_{CR}2"},{"3ERC2","^{3}E_{RC}2"},{"1DP32","^{1}D_{P3}2"}})
+    ok&=check(renderLabel(example.first)==renderLabel(example.second),"numbered CR/RC/P labels render with the same Figure subscripts as explicit markup");
+
   FigureSetupDialog dialog(structures,paths,{});dialog.show();QTest::qWait(100);
   auto visibleViews=[&]{QVector<MoleculeViewWidget*> result;for(auto* view:dialog.findChildren<MoleculeViewWidget*>())if(view->isVisible())result.append(view);return result;};
   auto views=visibleViews();ok&=check(views.size()==3,"first Figure group has three molecules");

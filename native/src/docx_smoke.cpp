@@ -17,16 +17,19 @@ int main(int argc,char** argv){
     check(si::structureLabelMarkup(example.first)==example.second,"automatic structure label markup");
     check(si::structureLabelMarkup(example.second)==example.second,"label markup is idempotent");
   }
-  for(const auto& suffix:QStringList{"P1","P2","P3","HP","P1-2"}){
-    for(const auto& ending:QStringList{"","-TS"}){
-      const auto label="1A"+suffix+ending;
-      const auto markup="^{1}A_{"+suffix+"}"+ending;
-      check(si::structureLabelMarkup(label)==markup,"P/HP suffix and singlet multiplicity formatting");
-      check(si::structureLabelMarkup(markup)==markup,"P/HP markup is idempotent");
-      check(si::formattedTextHtml(markup)=="<sup>1</sup>A<sub>"+suffix+"</sub>"+ending,"P/HP HTML formatting");
+  for(const auto& suffix:QStringList{"P1","P2","P3","HP","CR","RC"}){
+    for(const auto& trailing:QStringList{"","2","-2","2-TS","-2-TS","-TS"}){
+      const auto label="1A"+suffix+trailing;
+      const auto markup="^{1}A_{"+suffix+"}"+trailing;
+      check(si::structureLabelMarkup(label)==markup,"only the notation token is subscripted, excluding the following structure index");
+      check(si::structureLabelMarkup(markup)==markup,"explicit notation markup is idempotent");
+      check(si::formattedTextHtml(markup)=="<sup>1</sup>A<sub>"+suffix+"</sub>"+trailing,"structure index stays on the HTML baseline");
     }
   }
-  check(si::structureLabelMarkup("5BP12")=="^{5}BP12","unrequested P12 suffix remains unchanged");
+  for(const auto& example:QVector<QPair<QString,QString>>{{"1FCR2","^{1}F_{CR}2"},{"3ERC2","^{3}E_{RC}2"},{"1DP32","^{1}D_{P3}2"},{"5BP12","^{5}B_{P1}2"},{"1FCR2-TS","^{1}F_{CR}2-TS"},{"3ERC2-TS","^{3}E_{RC}2-TS"},{"1DP32-TS","^{1}D_{P3}2-TS"},{"1CP1-2","^{1}C_{P1}-2"}}){
+    check(si::structureLabelMarkup(example.first)==example.second,"numbered CR/RC/P names preserve the normal structure index");
+    check(si::structureLabelMarkup(example.second)==example.second,"explicit numbered name markup is preserved");
+  }
   const auto inputs=si::namedStructureInputs("(5DCR-TS file (1).out) (3DRC second.out)\n(1C\tthird.out)\tplain.out");
   check(inputs.size()==4&&inputs[0].label=="5DCR-TS"&&inputs[0].fileName=="file (1).out"&&inputs[1].label=="3DRC"&&inputs[2].label=="1C"&&inputs[3].label.isEmpty(),"paired input tokenization");
   const auto excel=si::namedStructureInputs("1A\t1-CoIII-Me3-freq.out\r\n1A-TS\t1-CoIII-Me3-ts-freq.out\r\n5DCR-TS\t\"공백 있는 (계산).out\"\n3DRC    file with spaces.out");
@@ -94,6 +97,31 @@ int main(int argc,char** argv){
   check(DocxWriter::writeCoordinates(coordinatePath,model,&coordinateError),"independent labelled coordinate DOCX");QFile coordinates(coordinatePath);
   check(coordinates.open(QIODevice::ReadOnly),"read labelled coordinates DOCX");const auto coordinateBytes=coordinates.readAll();
   check(coordinateBytes.count(superscript)==1&&coordinateBytes.count(subscriptCR)==1&&coordinateBytes.count(subscriptRC)==1,"independent coordinate document uses same name formatting");
+  si::SIDocumentModel numbered;
+  numbered.tables.append({si::DocumentSection::RelativeEnergy,"Numbered structure notation",{"Structure","ΔG"},{},{}});
+  for(const auto& name:QStringList{"1FCR2","3ERC2","1DP32"}){
+    numbered.tables[0].rows.append({name,"0.00"});numbered.coordinates.append({name,model.coordinates.front().atoms});
+  }
+  const auto numberedPath=QDir::current().filePath("numbered-notation-smoke.docx");
+  check(DocxWriter::writeDocument(numberedPath,numbered,&error),"write numbered notation regression DOCX");
+  QFile numberedFile(numberedPath);check(numberedFile.open(QIODevice::ReadOnly),"read numbered notation DOCX");const auto numberedBytes=numberedFile.readAll();
+  const auto xmlStart=numberedBytes.indexOf("<w:document"),xmlEnd=numberedBytes.indexOf("</w:document>");
+  check(xmlStart>=0&&xmlEnd>xmlStart,"numbered DOCX contains document XML");
+  QXmlStreamReader numberedXml(numberedBytes.mid(xmlStart,xmlEnd-xmlStart+13));QVector<QPair<QString,QString>> runs;
+  bool inRun=false;QString runText,alignment;
+  while(!numberedXml.atEnd()){
+    numberedXml.readNext();
+    if(numberedXml.isStartElement()){
+      if(numberedXml.name()=="r"){inRun=true;runText.clear();alignment.clear();}
+      else if(inRun&&numberedXml.name()=="vertAlign")alignment=numberedXml.attributes().value("http://schemas.openxmlformats.org/wordprocessingml/2006/main","val").toString();
+      else if(inRun&&numberedXml.name()=="t")runText+=numberedXml.readElementText();
+    }else if(numberedXml.isEndElement()&&numberedXml.name()=="r"){runs.append({runText,alignment});inRun=false;}
+  }
+  check(!numberedXml.hasError(),"numbered notation XML parses");
+  for(const auto& token:QStringList{"CR","RC","P3"}){
+    int found=0;for(int i=0;i+1<runs.size();++i)if(runs[i]==qMakePair(token,QString("subscript"))&&runs[i+1].first=="2"&&runs[i+1].second.isEmpty())++found;
+    check(found==2,"table and coordinate labels subscript only the token and keep trailing 2 at baseline");
+  }
   check(!document.contains("Def2-TZVPP electronic energy =")&&!document.contains("T = 298.15 K."),"no fabricated legacy footnotes");
   si::SIDocumentModel captions;
   captions.computationalDetails="Computational Details. Computational Details\nActual computational method.";
