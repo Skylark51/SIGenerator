@@ -512,12 +512,17 @@ struct Phase1Smoke {
       if(!file.open(QIODevice::WriteOnly))return false;
       file.write(QString(" # opt freq B3LYP/Def2-SVP\n\n Charge = 0 Multiplicity = 1\n SCF Done: E(RB3LYP) = -100.0 A.U.\n"
         " Standard orientation:\n -----\n Center Atomic Atomic Coordinates\n Number Number Type X Y Z\n -----\n"
-        " 1 6 0 0 0 0\n 2 6 0 1.4 0 0\n 3 8 0 0 1.3 0\n 4 1 0 0 0 %1\n -----\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
+        " 1 6 0 0 0 0\n 2 6 0 1.4 0 0\n 3 8 0 0 1.3 0\n 4 1 0 0 0 %1\n -----\n Mulliken charges and spin densities:\n 1 C 0.000 0.1234\n 2 C 0.000 0.7654\n 3 O 0.000 0.2345\n 4 H 0.000 0.0400\n Sum of Mulliken charges = 0\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
       file.close();paths.append(path);
     }
     window.parsePaths(paths);if(!waitUntil([&]{return !window.parsing_;}))return false;
+    window.decimalPlaces_->setValue(1); // A stale legacy setting must not round SI values to one decimal.
     window.refreshDocumentModel();
     auto* table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
+    const auto* originalSpin=window.documentModel_.table(si::DocumentSection::SpinDensity);
+    ok&=check(window.documentModel_.precisionOverride==0&&originalSpin&&
+      originalSpin->rows[0].value(1)=="0.765"&&table&&table->rows[0].value(1)=="1.000",
+      "energy, spin and geometry use per-quantity precision despite a legacy one-digit setting");
     ok&=check(table&&table->rows.size()==2&&table->headers.contains("C(1)-H(4) (Å)")&&!table->caption.contains("RMSD")&&!table->caption.contains("Automatically suggested"),"empty geometry input produces automatic reaction distance table");
     ok&=check(window.geometryIndices_->toPlainText().isEmpty(),"automatic suggestions preserve empty input for recalculation");
     window.geometryIndices_->setPlainText("1 2 3");window.refreshDocumentModel();
@@ -526,6 +531,35 @@ struct Phase1Smoke {
     window.geometryIndices_->clear();window.parsePaths({paths.front()});if(!waitUntil([&]{return !window.parsing_;}))return false;
     window.refreshDocumentModel();
     ok&=check(!window.documentModel_.table(si::DocumentSection::SelectedGeometry)&&!window.geometryAutoInfo_->text().isEmpty(),"single structure shows explanation instead of automatic table");
+
+    QStringList secondReaction;
+    for(int index=0;index<2;++index){
+      const auto path=folder.filePath(QString("other%1-freq.out").arg(index));QFile file(path);
+      if(!file.open(QIODevice::WriteOnly))return false;
+      file.write(QString(" # opt freq UB3LYP/Def2-SVP\\n\\n Charge = 0 Multiplicity = 3\\n SCF Done: E(UB3LYP) = -101.0 A.U.\\n"
+        " Standard orientation:\\n -----\\n Center Atomic Atomic Coordinates\\n Number Number Type X Y Z\\n -----\\n"
+        " 1 8 0 0 0 0\\n 2 6 0 1.4 0 0\\n 3 1 0 0 0 %1\\n -----\\n"
+        " Mulliken charges and spin densities:\\n 1 O 0.000 0.6543\\n 2 C 0.000 0.2345\\n 3 H 0.000 0.1111\\n"
+        " Sum of Mulliken charges = 0\\n Normal termination of Gaussian 16\\n").arg(index?1.7:1.0).toUtf8());
+      file.close();secondReaction.append(path);
+    }
+    auto allPaths=paths;allPaths.append(secondReaction);
+    window.parsePaths(allPaths);if(!waitUntil([&]{return !window.parsing_;}))return false;
+    window.reactionStages_={
+      QJsonObject{{"name","First reaction"},{"files",QJsonArray{paths[0],paths[1]}},{"reference",paths[0]}},
+      QJsonObject{{"name","Second reaction"},{"files",QJsonArray{secondReaction[0],secondReaction[1]}},{"reference",secondReaction[0]}}
+    };
+    window.refreshDocumentModel();
+    int geometryTables=0,spinTables=0;
+    for(const auto& scoped:window.documentModel_.tables){
+      if(scoped.section!=si::DocumentSection::SelectedGeometry&&scoped.section!=si::DocumentSection::SpinDensity)continue;
+      ok&=check(scoped.rows.size()==2,"each reaction table has two structures");
+      for(const auto& row:scoped.rows)for(int col=1;col<row.size();++col)
+        ok&=check(row[col]!="N/A","valid stage-specific XYZ/spin does not produce N/A");
+      if(scoped.section==si::DocumentSection::SelectedGeometry)++geometryTables;
+      else ++spinTables;
+    }
+    ok&=check(geometryTables==2&&spinTables==2,"automatic spin and geometry tables are generated separately for reactions with different atom counts");
     return ok;
   }
   static bool labelledFileImports(const QString& fixture){
