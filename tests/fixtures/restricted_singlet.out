@@ -1,0 +1,16 @@
+ Gaussian 16
+ #p rb3lyp/def2-SVP opt freq
+
+ Charge = 0 Multiplicity = 1
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.000000    0.000000    0.000000
+      2          1           0        0.957200    0.000000    0.000000
+      3          1           0       -0.239987    0.927297    0.000000
+ ---------------------------------------------------------------------
+ SCF Done:  E(RB3LYP) =  -76.4000000000 A.U. after 10 cycles
+ Sum of electronic and thermal Free Energies= -76.390000
+ Normal termination of Gaussian 16
