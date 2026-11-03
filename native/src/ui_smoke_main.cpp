@@ -24,6 +24,7 @@
 #include <QTextTable>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QSpinBox>
 #include <QDialog>
 #include <QLineEdit>
 #include <QInputDialog>
