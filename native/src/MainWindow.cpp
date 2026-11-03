@@ -105,7 +105,7 @@ QStringList lines(const QString& text){return text.split(QRegularExpression(QStr
 QVector<QVector<int>> indexGroups(const QString& text){QVector<QVector<int>> groups;for(const auto& raw:text.split(QRegularExpression(QStringLiteral("[\\r\\n|]+")),Qt::SkipEmptyParts)){QVector<int> group;for(const auto& token:raw.split(QRegularExpression(QStringLiteral("[^0-9]+")),Qt::SkipEmptyParts))group.append(token.toInt());if(!group.isEmpty())groups.append(group);}return groups;}
 QVector<QStringList> valueRows(const QString& text){QVector<QStringList> rows;for(const auto& line:lines(text)){auto values=line.trimmed().split(QRegularExpression(QStringLiteral("[\\t ]+")),Qt::SkipEmptyParts);rows.append(values);}return rows;}
 QString number(const std::optional<double>& value,int digits,int precision){return si::formatNumber(value,digits,precision);}
-QString manualNumber(const QString& value,int precision){if(precision<=0)return value;bool ok=false;const double parsed=value.toDouble(&ok);return ok?si::formatNumber(parsed,precision,precision):value;}
+QString manualNumber(const QString& value,int){bool ok=false;const double parsed=value.toDouble(&ok);return ok?si::formatNumber(parsed,2,0):value;}
 void filterRelativeTable(si::DocumentTable& table,bool dispersion,bool complexation){const auto columns=si::relativeEnergyColumns(dispersion,complexation);QStringList headers;QVector<QStringList> rows;for(int logical:columns)headers.append(table.headers[logical+1]);for(const auto& source:table.rows){QStringList row{source.value(0)};for(int logical:columns)row.append(source.value(logical+1));rows.append(row);}table.headers=QStringList{QString()}+headers;table.rows=rows;table.boldColumns.clear();for(int i=0;i<table.headers.size();++i)if(table.headers[i]==QStringLiteral("E_{Total}")||table.headers[i]==QStringLiteral("ΔG^{c}"))table.boldColumns.append(i);}
 QString pairedSinglePointPath(const QString& frequencyPath){return QString::fromStdWString(si::pairedSinglePointPath(std::filesystem::path(frequencyPath.toStdWString())).wstring());}
 QString namedFilePath(const QDir& base,const QString& name,QString* problem=nullptr){
@@ -182,7 +182,7 @@ QWidget* MainWindow::createInputPanel(){
   updateRelativeOrder();layout->addWidget(energySection_);
   spinSection_=section(tr("Mulliken 스핀 밀도 (Spin Density)"),content,true);auto* spin=new QFormLayout(spinSection_);spinNames_=new QTextEdit(spinSection_);spinNames_->setPlaceholderText(tr("구조명 — 비우면 구조 목록 사용 (Structure Labels)"));spinNames_->setFixedHeight(45);spin->addRow(spinNames_);spinIndices_=new QTextEdit(spinSection_);spinIndices_->setPlaceholderText(tr("원자 ID — 비우면 절댓값 상위 6개 자동 선택 (Atom IDs)"));spinIndices_->setFixedHeight(45);spin->addRow(spinIndices_);layout->addWidget(spinSection_);
   geometrySection_=section(tr("선택 구조 (Selected Geometry)"),content,true);auto* geometry=new QFormLayout(geometrySection_);geometryNames_=new QTextEdit(geometrySection_);geometryNames_->setPlaceholderText(tr("구조명 — 비우면 구조 목록 사용 (Structure Labels)"));geometryNames_->setFixedHeight(45);geometry->addRow(geometryNames_);geometryIndices_=new QTextEdit(geometrySection_);geometryIndices_->setPlaceholderText(tr("2/3/4개 원자 ID: 거리/각/이면각 — 비우면 RMSD 자동 분석"));geometryIndices_->setFixedHeight(55);geometry->addRow(geometryIndices_);geometryAutoInfo_=new QLabel(geometrySection_);geometryAutoInfo_->setWordWrap(true);geometryAutoInfo_->setObjectName("geometryAutoInfo");geometry->addRow(geometryAutoInfo_);auto* addGeometry=new QPushButton(tr("클릭 선택 추가 (Add Click Selection)"),geometrySection_);connect(addGeometry,&QPushButton::clicked,this,&MainWindow::appendSelectedGeometry);geometry->addRow(addGeometry);layout->addWidget(geometrySection_);
-  auto* documentBox=section(tr("문서와 출력 (Document & Output)"),content);documentSection_=documentBox;auto* document=new QFormLayout(documentBox);documentTitle_=new QLineEdit(QStringLiteral("Supporting Information"),documentBox);document->addRow(tr("문서 제목 (Document Title)"),documentTitle_);mechanismName_=new QLineEdit(documentBox);mechanismName_->setPlaceholderText(tr("반응/메커니즘 이름 (Mechanism Name)"));document->addRow(tr("메커니즘 (Mechanism)"),mechanismName_);decimalPlaces_=new QSpinBox(documentBox);decimalPlaces_->setRange(0,10);decimalPlaces_->setSpecialValueText(tr("권장 정밀도 (Recommended)"));document->addRow(tr("소수점 자리수 (Decimal Places)"),decimalPlaces_);captions_=new QTextEdit(documentBox);captions_->setPlaceholderText(tr("그림 캡션 — Figure 그룹당 한 줄 (첫 3개, 이후 2개)"));captions_->setFixedHeight(60);document->addRow(captions_);siOutputPath_=new QLineEdit(documentBox);siOutputPath_->setPlaceholderText(tr("SI DOCX 출력 경로 (SI Output Path)"));document->addRow(siOutputPath_);xyzOutputPath_=new QLineEdit(documentBox);xyzOutputPath_->setPlaceholderText(tr("XYZ 출력 경로 (*.xyz)"));document->addRow(xyzOutputPath_);manuscriptTitle_=new QLineEdit(documentBox);manuscriptTitle_->setObjectName("manuscriptTitle");document->addRow("Manuscript title",manuscriptTitle_);
+  auto* documentBox=section(tr("문서와 출력 (Document & Output)"),content);documentSection_=documentBox;auto* document=new QFormLayout(documentBox);documentTitle_=new QLineEdit(QStringLiteral("Supporting Information"),documentBox);document->addRow(tr("문서 제목 (Document Title)"),documentTitle_);mechanismName_=new QLineEdit(documentBox);mechanismName_->setPlaceholderText(tr("반응/메커니즘 이름 (Mechanism Name)"));document->addRow(tr("메커니즘 (Mechanism)"),mechanismName_);decimalPlaces_=new QSpinBox(documentBox);decimalPlaces_->setRange(0,10);decimalPlaces_->hide(); /* Retain legacy project-field compatibility; precision is defined per quantity. */ captions_=new QTextEdit(documentBox);captions_->setPlaceholderText(tr("그림 캡션 — Figure 그룹당 한 줄 (첫 3개, 이후 2개)"));captions_->setFixedHeight(60);document->addRow(captions_);siOutputPath_=new QLineEdit(documentBox);siOutputPath_->setPlaceholderText(tr("SI DOCX 출력 경로 (SI Output Path)"));document->addRow(siOutputPath_);xyzOutputPath_=new QLineEdit(documentBox);xyzOutputPath_->setPlaceholderText(tr("XYZ 출력 경로 (*.xyz)"));document->addRow(xyzOutputPath_);manuscriptTitle_=new QLineEdit(documentBox);manuscriptTitle_->setObjectName("manuscriptTitle");document->addRow("Manuscript title",manuscriptTitle_);
   auto* prepare=new QPushButton(tr("분자 Figure 뷰 설정 (첫 3개 · 이후 2개)"),documentBox);prepare->setObjectName("prepareFiguresButton");document->addRow(prepare);
   connect(prepare,&QPushButton::clicked,this,[this]{prepareFigures();});
   authors_=new QLineEdit(documentBox);document->addRow("Authors",authors_);
@@ -472,6 +472,15 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   watcher->setFuture(QtConcurrent::run([cache,paths,restoredSnapshots,restoredPairedPaths](QPromise<Result>& promise){
     promise.setProgressRange(0,paths.size());
     auto parse=[cache,&restoredSnapshots](const QString& path)->std::shared_ptr<const si::GaussianResult>{
+      // Re-read accessible Gaussian outputs with the current parser. Older
+      // project snapshots may contain partial hydrogen-summed spin data.
+      // The saved snapshot remains a fallback for portable/offline projects.
+      if(QFileInfo::exists(path)){
+        try{
+          const auto fresh=cache->get(path.toStdWString());
+          if(fresh&&fresh->success)return fresh;
+        }catch(const std::exception&){/* Fall back to the stored snapshot. */}
+      }
       if(const auto packed=restoredSnapshots.value(path);packed.isObject()){
         si::GaussianResult saved;
         if(si::GaussianSnapshot::decode(packed.toObject(),&saved))
@@ -508,7 +517,7 @@ std::vector<si::EnergyRecord> MainWindow::energyRecords() const{
     const auto* item=files_->item(row,0);if(!item)continue;
     const auto path=item->data(Qt::UserRole).toString();const auto main=parsed_.value(path);if(!main)continue;
     si::EnergyRecord record;record.name=item->text().toStdString();record.frequency=*main;
-    if(const auto pair=parsed_.value(pairedPaths_.value(path));pair&&pair->success)record.singlePoint=*pair;
+    if(const auto pair=parsed_.value(pairedPaths_.value(path));pair&&pair->success){record.singlePoint=*pair;if(record.frequency.finalGeometry.empty()&&!pair->finalGeometry.empty())record.frequency.finalGeometry=pair->finalGeometry;}
     records.push_back(std::move(record));
   }
   return records;
@@ -641,7 +650,7 @@ QStringList MainWindow::structureLabels() const{QStringList values;for(int row=0
 QStringList MainWindow::sourcePaths() const{QStringList values;for(int row=0;row<files_->rowCount();++row)if(auto* item=files_->item(row,0))values.append(item->data(Qt::UserRole).toString());return values;}
 
 si::SIDocumentModel MainWindow::buildDocumentModel(){
-  si::SIDocumentModel model;model.title=documentTitle_->text().trimmed().isEmpty()?QStringLiteral("Supporting Information"):documentTitle_->text().trimmed();model.mechanismName=mechanismName_->text().trimmed();model.figureCaptions=lines(captions_->toPlainText());model.precisionOverride=decimalPlaces_->value();const int precision=model.precisionOverride;const bool absoluteRequested=includeAbsolute_->isChecked()||std::any_of(reactionStages_.begin(),reactionStages_.end(),[](const auto& value){return value.toObject().value("absolute").toBool(false);});const auto labels=structureLabels();const auto paths=sourcePaths();
+  si::SIDocumentModel model;model.title=documentTitle_->text().trimmed().isEmpty()?QStringLiteral("Supporting Information"):documentTitle_->text().trimmed();model.mechanismName=mechanismName_->text().trimmed();model.figureCaptions=lines(captions_->toPlainText());model.precisionOverride=0;const int precision=0;const bool absoluteRequested=includeAbsolute_->isChecked()||std::any_of(reactionStages_.begin(),reactionStages_.end(),[](const auto& value){return value.toObject().value("absolute").toBool(false);});const auto labels=structureLabels();const auto paths=sourcePaths();
   model.manuscriptTitle=manuscriptTitle_->text();model.authors=authors_->text();model.affiliations=affiliations_->text();model.correspondingEmail=correspondingEmail_->text();model.referencesText=referencesText_->toPlainText();
   auto records=energyRecords();geometryAutoInfo_->clear();
   const auto detailsBasis=energyInputMode_->currentData().toString()==QStringLiteral("automatic")&&referenceMode_->currentData().toString()==QStringLiteral("single")
@@ -688,7 +697,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       for(const auto& record:records){
         const auto values=si::legacyAbsoluteEnergyValues(record);
         QStringList row{QString::fromStdString(record.name)};
-        for(int col=0;col<6;++col)row.append(number(values[col],col==0||col==1||col==5?8:3,precision));
+        for(int col=0;col<6;++col)row.append(number(values[col],2,0));
         table.rows.append(row);
       }
       model.tables.append(table);
@@ -811,7 +820,7 @@ void MainWindow::closeEvent(QCloseEvent* event){if(!saveActiveProject()){event->
 bool MainWindow::saveProjectToPath(const QString& path){
   if(parsing_){QMessageBox::warning(this,tr("프로젝트 저장 대기"),tr("Gaussian 파일 해석이 끝난 뒤 저장해야 추출 데이터가 모두 포함됩니다."));return false;}
   for(const auto& source:sourcePaths())if(!parsed_.contains(source)){QMessageBox::warning(this,tr("프로젝트 저장 실패"),tr("추출 결과가 없는 구조가 있습니다: %1").arg(source));return false;}
-  refreshDocumentModel();ProjectState state;state.projectName=projectName_;state.files=sourcePaths();state.structureNames=structureLabels().join('\n');state.referenceMode=referenceMode_->currentData().toString();state.referencePath=reference_->currentData().toString();state.manualReference=manualReference_->text();state.energyInputMode=energyInputMode_->currentData().toString();state.energyBasis=QString::number(energyBasis_->currentData().toInt());state.manualAbsoluteNames=manualAbsoluteNames_->toPlainText();state.manualAbsoluteValues=manualAbsoluteValues_->toPlainText();state.manualRelativeNames=manualRelativeNames_->toPlainText();state.manualRelativeValues=manualRelativeValues_->toPlainText();state.spinNames=spinNames_->toPlainText();state.spinIndices=spinIndices_->toPlainText();state.geometryNames=geometryNames_->toPlainText();state.geometryIndices=geometryIndices_->toPlainText();state.captions=captions_->toPlainText();state.mechanismName=mechanismName_->text();state.documentTitle=documentTitle_->text();state.manuscriptTitle=manuscriptTitle_->text();state.authors=authors_->text();state.affiliations=affiliations_->text();state.correspondingEmail=correspondingEmail_->text();state.computationalDetails=computationalDetails_->toPlainText();state.computationalDetailsEdited=detailsEdited_;state.referencesText=referencesText_->toPlainText();state.figureSettings=figureSettings_;state.reactionStages=reactionStages_;state.includeAbsolute=includeAbsolute_->isChecked();state.decimalPlaces=decimalPlaces_->value();state.includeDispersion=includeDispersion_->isChecked();state.includeComplexation=includeComplexation_->isChecked();state.baseDirectory=baseDirectory_->text();state.siPath=siOutputPath_->text();state.xyzPath=xyzOutputPath_->text();
+  refreshDocumentModel();ProjectState state;state.projectName=projectName_;state.files=sourcePaths();state.structureNames=structureLabels().join('\n');state.referenceMode=referenceMode_->currentData().toString();state.referencePath=reference_->currentData().toString();state.manualReference=manualReference_->text();state.energyInputMode=energyInputMode_->currentData().toString();state.energyBasis=QString::number(energyBasis_->currentData().toInt());state.manualAbsoluteNames=manualAbsoluteNames_->toPlainText();state.manualAbsoluteValues=manualAbsoluteValues_->toPlainText();state.manualRelativeNames=manualRelativeNames_->toPlainText();state.manualRelativeValues=manualRelativeValues_->toPlainText();state.spinNames=spinNames_->toPlainText();state.spinIndices=spinIndices_->toPlainText();state.geometryNames=geometryNames_->toPlainText();state.geometryIndices=geometryIndices_->toPlainText();state.captions=captions_->toPlainText();state.mechanismName=mechanismName_->text();state.documentTitle=documentTitle_->text();state.manuscriptTitle=manuscriptTitle_->text();state.authors=authors_->text();state.affiliations=affiliations_->text();state.correspondingEmail=correspondingEmail_->text();state.computationalDetails=computationalDetails_->toPlainText();state.computationalDetailsEdited=detailsEdited_;state.referencesText=referencesText_->toPlainText();state.figureSettings=figureSettings_;state.reactionStages=reactionStages_;state.includeAbsolute=includeAbsolute_->isChecked();state.decimalPlaces=0;state.includeDispersion=includeDispersion_->isChecked();state.includeComplexation=includeComplexation_->isChecked();state.baseDirectory=baseDirectory_->text();state.siPath=siOutputPath_->text();state.xyzPath=xyzOutputPath_->text();
   for(const auto& source:state.files){
     if(const auto result=parsed_.value(source))
       state.gaussianSnapshots.insert(source,si::GaussianSnapshot::encode(*result));
@@ -832,7 +841,7 @@ bool MainWindow::loadProjectPath(const QString& path){
   ProjectState state;QString error;if(!ProjectStore::load(path,&state,&error)){QMessageBox::critical(this,tr("열기 실패 (Open Failed)"),error);return false;}
   if(!currentProjectPath_.isEmpty()&&!saveActiveProject())return false;
   pendingStructureLabels_=lines(state.structureNames);pendingLabelsByPath_.clear();for(int i=0;i<state.files.size();++i)pendingLabelsByPath_.insert(QFileInfo(state.files[i]).absoluteFilePath(),pendingStructureLabels_.value(i,QFileInfo(state.files[i]).completeBaseName()));
-  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(state.decimalPlaces);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
+  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(0);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
   baseDirectory_->setText(QDir(state.baseDirectory).exists()?state.baseDirectory:projectDirectory.absolutePath());
   auto relocatedOutput=[&](const QString& previous,const QString& fallback){
     if(previous.trimmed().isEmpty())return projectDirectory.filePath(fallback);
@@ -985,11 +994,54 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
   int sourceStageIndex=-1;for(int index=0;index<reactionStages_.size();++index)if(reactionStages_[index].toObject().value("id").toString(reactionStages_[index].toObject().value("name").toString())==id){sourceStageIndex=index;break;}
   for(const auto& table:model.tables){
     const QString key=table.section==si::DocumentSection::AbsoluteEnergy?"absolute":table.section==si::DocumentSection::RelativeEnergy?"relative":table.section==si::DocumentSection::SpinDensity?"spin":table.section==si::DocumentSection::SelectedGeometry?"geometry":"";
+    if(key=="geometry"&&geometryIndices_->toPlainText().trimmed().isEmpty())continue; // Recalculate automatically for each reaction stage.
     if(key.isEmpty()||!canSplit(table))continue;
     {if(!stage.value(key).toBool(key=="absolute"?includeAbsolute_->isChecked():true))continue;const auto members=stage["files"].toArray();auto split=table;split.stageId=stage.value("id").toString(stage["name"].toString());split.rows.clear();std::vector<si::EnergyRecord> selected;
       for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i])split.rows.append(row);}else split.rows.append(table.rows[i]);if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
       if(split.rows.isEmpty())continue;
       split.caption=stage["name"].toString()+": "+table.caption;
+      if(key=="spin"&&spinIndices_->toPlainText().trimmed().isEmpty()&&!selected.empty()){
+        // The global six-atom ranking can select IDs absent from another
+        // reaction. Rank only atoms reported for every structure in this stage.
+        std::unordered_map<int,double> maxima;
+        for(const auto& record:selected)for(const auto& spin:record.frequency.spinDensities)
+          maxima[spin.atomIndex]=std::max(maxima[spin.atomIndex],std::abs(spin.spin));
+        std::vector<std::pair<int,double>> ranked(maxima.begin(),maxima.end());
+        std::sort(ranked.begin(),ranked.end(),[](const auto& a,const auto& b){return a.second!=b.second?a.second>b.second:a.first<b.first;});
+        QVector<int> commonIds;
+        for(const auto& candidate:ranked){
+          std::string symbol;bool common=true;
+          for(const auto& record:selected){
+            const auto& spins=record.frequency.spinDensities;
+            const auto found=std::find_if(spins.begin(),spins.end(),[&](const auto& spin){return spin.atomIndex==candidate.first;});
+            if(found==spins.end()||(!symbol.empty()&&symbol!=found->atom)){common=false;break;}
+            symbol=found->atom;
+          }
+          if(common)commonIds.append(candidate.first);
+          if(commonIds.size()==6)break;
+        }
+        if(commonIds.isEmpty())continue; // No common Mulliken atom data can be compared.
+        const auto sourceRows=split.rows;
+        split.headers={QString()};
+        for(const int atomId:commonIds)split.headers.append(atomLabel(selected.front().frequency,atomId));
+        split.headers.append(QStringLiteral("Rest"));split.headers.append(QStringLiteral("Sum"));
+        split.rows.clear();
+        for(size_t rowIndex=0;rowIndex<selected.size();++rowIndex){
+          const auto& record=selected[rowIndex];double total=0.0,rest=0.0;
+          QSet<int> chosen;for(const int id:commonIds)chosen.insert(id);
+          for(const auto& spin:record.frequency.spinDensities){
+            total+=spin.spin;if(!chosen.contains(spin.atomIndex))rest+=spin.spin;
+          }
+          QStringList row{sourceRows.value(static_cast<int>(rowIndex)).value(0,QString::fromStdString(record.name))};
+          for(const int atomId:commonIds){
+            const auto& spins=record.frequency.spinDensities;
+            const auto found=std::find_if(spins.begin(),spins.end(),[&](const auto& spin){return spin.atomIndex==atomId;});
+            row.append(si::formatNumber(found->spin,3,0));
+          }
+          row.append(si::formatNumber(rest,3,0));row.append(si::formatNumber(total,3,0));
+          split.rows.append(row);
+        }
+      }
       if(key=="relative"&&(stage.value("manual_relative_enabled").toBool(false)||(sourceStageIndex>=0&&stageNeedsManualRelative(sourceStageIndex)))){
         const auto values=lines(stage.value("manual_relative_values").toString());
         split.headers={tr("Structure"),tr("ΔG (kcal/mol)")};
@@ -1010,6 +1062,39 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
         split.caption+=tr(" Reference: %1.").arg(QString::fromStdString(selected[ref].name));
       }
       tables.append(split);
+    }
+  }
+  if(geometryIndices_->toPlainText().trimmed().isEmpty()){
+    std::vector<si::EnergyRecord> geometryRecords;
+    QVector<int> sourceIndices;
+    for(const auto& member:stage["files"].toArray()){
+      const int index=paths.indexOf(member.toString());
+      if(index>=0&&index<static_cast<int>(records.size())){
+        geometryRecords.push_back(records[static_cast<size_t>(index)]);
+        sourceIndices.append(index);
+      }
+    }
+    const auto suggestion=si::suggestGeometry(geometryRecords);
+    if(!suggestion.distances.empty()){
+      si::DocumentTable geometryTable{si::DocumentSection::SelectedGeometry,
+        stage["name"].toString()+tr(": Selected Geometries of %1 in Å and °.").arg(si::displayMechanism(model)),
+        {QString()},{},{}};
+      geometryTable.stageId=id;
+      const auto& labelSource=geometryRecords[suggestion.recordIndices.front()].frequency;
+      for(const auto& pair:suggestion.distances)
+        geometryTable.headers.append(atomLabel(labelSource,pair[0])+"-"+atomLabel(labelSource,pair[1])+QStringLiteral(" (Å)"));
+      QSet<size_t> compatible;
+      for(const auto index:suggestion.recordIndices)compatible.insert(index);
+      const auto manuallyNamed=lines(geometryNames_->toPlainText());
+      for(size_t index=0;index<geometryRecords.size();++index){
+        const auto& record=geometryRecords[index];
+        const int sourceIndex=sourceIndices[static_cast<int>(index)];
+        QStringList row{manuallyNamed.size()==paths.size()?manuallyNamed[sourceIndex]:QString::fromStdString(record.name)};
+        for(const auto& pair:suggestion.distances)
+          row.append(compatible.contains(index)?number(si::distance(record.frequency.finalGeometry,pair[0],pair[1]),3,0):QStringLiteral("N/A"));
+        geometryTable.rows.append(row);
+      }
+      tables.append(geometryTable);
     }
   }
   }

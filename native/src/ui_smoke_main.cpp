@@ -24,6 +24,7 @@
 #include <QTextTable>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QSpinBox>
 #include <QDialog>
 #include <QLineEdit>
 #include <QInputDialog>
@@ -381,6 +382,23 @@ struct Phase1Smoke {
       QFileInfo(linkedSpe).absoluteFilePath()==QFileInfo(singlePoint).absoluteFilePath()&&
       stored.gaussianSnapshots.contains(linkedSpe),
       "both frequency and SPE are embedded");
+    // An old project snapshot must not hide corrected source data when the
+    // Gaussian output is available locally.
+    QFile updated(primary);if(!updated.open(QIODevice::ReadOnly))return false;
+    auto newOutput=updated.readAll();updated.close();
+    ok&=check(newOutput.contains("0.100000"),"live-source spin fixture located");
+    newOutput.replace("0.100000","0.888888");
+    if(!updated.open(QIODevice::WriteOnly|QIODevice::Truncate))return false;
+    updated.write(newOutput);updated.close();
+    {
+      MainWindow refreshed;
+      ok&=check(refreshed.loadProjectPath(project)&&waitForImport(refreshed),
+        "saved project reloads with available Gaussian source");
+      const auto live=refreshed.energyRecords();
+      ok&=check(live.size()==1&&!live[0].frequency.spinDensities.empty()&&
+        std::abs(live[0].frequency.spinDensities[0].spin-0.888888)<1e-9,
+        "fresh Gaussian spin values supersede stale embedded snapshots");
+    }
     ok&=check(QFile::remove(primary)&&QFile::remove(singlePoint),"original Gaussian files removed");
     MainWindow reopened;
     ok&=check(reopened.loadProjectPath(project)&&waitForImport(reopened),"offline project reopens");
@@ -421,7 +439,7 @@ struct Phase1Smoke {
     window.energyInputMode_->setCurrentIndex(window.energyInputMode_->findData("manual"));window.includeAbsolute_->setChecked(false);
     window.manualRelativeNames_->setPlainText("stage-2\nstage-1\nstage-0\nstage-3");
     window.manualRelativeValues_->setPlainText("2 0 2 0 0 0 2\n1 0 1 0 0 0 1\n0 0 0 0 0 0 0\n3 0 3 0 0 0 3");model=window.buildDocumentModel();
-    ok&=check(model.tables.first().rows.first().first()=="stage-1"&&model.tables.first().rows.last().last()=="2","manual table assignment follows names rather than input row position");
+    ok&=check(model.tables.first().rows.first().first()=="stage-1"&&model.tables.first().rows.last().last()=="2.00","manual table assignment follows names rather than input row position");
     return ok;
   }
   static bool iconNavigation(MainWindow& window){
@@ -512,12 +530,23 @@ struct Phase1Smoke {
       if(!file.open(QIODevice::WriteOnly))return false;
       file.write(QString(" # opt freq B3LYP/Def2-SVP\n\n Charge = 0 Multiplicity = 1\n SCF Done: E(RB3LYP) = -100.0 A.U.\n"
         " Standard orientation:\n -----\n Center Atomic Atomic Coordinates\n Number Number Type X Y Z\n -----\n"
-        " 1 6 0 0 0 0\n 2 6 0 1.4 0 0\n 3 8 0 0 1.3 0\n 4 1 0 0 0 %1\n -----\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
+        " 1 6 0 0 0 0\n 2 6 0 1.4 0 0\n 3 8 0 0 1.3 0\n 4 1 0 0 0 %1\n -----\n Mulliken charges and spin densities:\n 1 C 0.000 0.1234\n 2 C 0.000 0.7654\n 3 O 0.000 0.2345\n 4 H 0.000 0.0400\n Sum of Mulliken charges = 0\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
       file.close();paths.append(path);
     }
     window.parsePaths(paths);if(!waitUntil([&]{return !window.parsing_;}))return false;
+    window.decimalPlaces_->setValue(1); // A stale legacy setting must not round SI values to one decimal.
+    window.includeAbsolute_->setChecked(true);
     window.refreshDocumentModel();
+    const auto* absolute=window.documentModel_.table(si::DocumentSection::AbsoluteEnergy);
+    const auto* relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
+    ok&=check(absolute&&absolute->rows[0].value(1)=="-100.00"&&
+      relative&&relative->rows[0].value(1)=="0.00",
+      "SI absolute and relative energies retain exactly two decimal places");
     auto* table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
+    const auto* originalSpin=window.documentModel_.table(si::DocumentSection::SpinDensity);
+    ok&=check(window.documentModel_.precisionOverride==0&&originalSpin&&
+      originalSpin->rows[0].value(1)=="0.765"&&table&&table->rows[0].value(1)=="1.000",
+      "energy, spin and geometry use per-quantity precision despite a legacy one-digit setting");
     ok&=check(table&&table->rows.size()==2&&table->headers.contains("C(1)-H(4) (Å)")&&!table->caption.contains("RMSD")&&!table->caption.contains("Automatically suggested"),"empty geometry input produces automatic reaction distance table");
     ok&=check(window.geometryIndices_->toPlainText().isEmpty(),"automatic suggestions preserve empty input for recalculation");
     window.geometryIndices_->setPlainText("1 2 3");window.refreshDocumentModel();
@@ -526,6 +555,35 @@ struct Phase1Smoke {
     window.geometryIndices_->clear();window.parsePaths({paths.front()});if(!waitUntil([&]{return !window.parsing_;}))return false;
     window.refreshDocumentModel();
     ok&=check(!window.documentModel_.table(si::DocumentSection::SelectedGeometry)&&!window.geometryAutoInfo_->text().isEmpty(),"single structure shows explanation instead of automatic table");
+
+    QStringList secondReaction;
+    for(int index=0;index<2;++index){
+      const auto path=folder.filePath(QString("other%1-freq.out").arg(index));QFile file(path);
+      if(!file.open(QIODevice::WriteOnly))return false;
+      file.write(QString(" # opt freq UB3LYP/Def2-SVP\n\n Charge = 0 Multiplicity = 3\n SCF Done: E(UB3LYP) = -101.0 A.U.\n"
+        " Standard orientation:\n -----\n Center Atomic Atomic Coordinates\n Number Number Type X Y Z\n -----\n"
+        " 1 8 0 0 0 0\n 2 6 0 1.4 0 0\n 3 1 0 0 0 %1\n -----\n"
+        " Mulliken charges and spin densities:\n 1 O 0.000 0.6543\n 2 C 0.000 0.2345\n 3 H 0.000 0.1111\n"
+        " Sum of Mulliken charges = 0\n Normal termination of Gaussian 16\n").arg(index?1.7:1.0).toUtf8());
+      file.close();secondReaction.append(path);
+    }
+    auto allPaths=paths;allPaths.append(secondReaction);
+    window.parsePaths(allPaths);if(!waitUntil([&]{return !window.parsing_;}))return false;
+    window.reactionStages_={
+      QJsonObject{{"name","First reaction"},{"files",QJsonArray{paths[0],paths[1]}},{"reference",paths[0]}},
+      QJsonObject{{"name","Second reaction"},{"files",QJsonArray{secondReaction[0],secondReaction[1]}},{"reference",secondReaction[0]}}
+    };
+    window.refreshDocumentModel();
+    int geometryTables=0,spinTables=0;
+    for(const auto& scoped:window.documentModel_.tables){
+      if(scoped.section!=si::DocumentSection::SelectedGeometry&&scoped.section!=si::DocumentSection::SpinDensity)continue;
+      ok&=check(scoped.rows.size()==2,"each reaction table has two structures");
+      for(const auto& row:scoped.rows)for(int col=1;col<row.size();++col)
+        ok&=check(row[col]!="N/A","valid stage-specific XYZ/spin does not produce N/A");
+      if(scoped.section==si::DocumentSection::SelectedGeometry)++geometryTables;
+      else ++spinTables;
+    }
+    ok&=check(geometryTables==2&&spinTables==2,"automatic spin and geometry tables are generated separately for reactions with different atom counts");
     return ok;
   }
   static bool labelledFileImports(const QString& fixture){
@@ -906,7 +964,7 @@ struct Phase1Smoke {
     const auto* absolute=window.documentModel_.table(si::DocumentSection::AbsoluteEnergy);
     ok&=check(window.energyBasis_->currentData().toInt()==static_cast<int>(si::EnergyBasis::LegacyComposite),"original Python energy mode selected by default");
     ok&=check(absolute&&absolute->headers==QStringList({"","E_{Def2-SVP}","E_{Def2-TZVPP}","Z_{0}","E_{Thermal}","S","Dispersion"})&&
-      absolute->rows.front()==QStringList({"1A-freq","-100.00000000","-101.00000000","18.826","25.100","50.000","-0.01000000"}),"legacy absolute columns and Gaussian printed kcal values");
+      absolute->rows.front()==QStringList({"1A-freq","-100.00","-101.00","18.83","25.10","50.00","-0.01"}),"legacy absolute columns and Gaussian printed kcal values");
     const auto* relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
     window.includeDispersion_->setChecked(true);window.includeComplexation_->setChecked(true);window.refreshDocumentModel();relative=window.documentModel_.table(si::DocumentSection::RelativeEnergy);
     const QStringList expectedRelative{"3A-freq","-62.75","-62.75","-125.50","+0.30","+0.20","-1.49","+1.26","+0.00","-125.24"};
