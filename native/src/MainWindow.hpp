@@ -191,6 +191,9 @@ private:
   QSplitter* mainSplitter_{};
   QTabWidget* workspaceTabs_{};
   QByteArray workspaceSplitState_;
+  bool workspaceFocused_{};
+  bool restoringSplitterState_{};
+  bool splitterStateRestored_{};
   MoleculeViewWidget* moleculeView_{};
   DocumentPreviewWidget* preview_{};
   QTimer* previewTimer_{};
