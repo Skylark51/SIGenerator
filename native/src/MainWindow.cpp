@@ -174,7 +174,7 @@ void MainWindow::showEvent(QShowEvent* event){
     restoringSplitterState_=true;
     if(bytes.isEmpty()||!mainSplitter_->restoreState(bytes)||
        mainSplitter_->sizes().size()!=3||
-       std::any_of(mainSplitter_->sizes().begin(),mainSplitter_->sizes().end(),[](int value){return value<=0;}))
+       ([](const QList<int>& sizes){return std::any_of(sizes.cbegin(),sizes.cend(),[](int value){return value<=0;});})(mainSplitter_->sizes()))
       mainSplitter_->setSizes({210,635,635});
     restoringSplitterState_=false;
   });
