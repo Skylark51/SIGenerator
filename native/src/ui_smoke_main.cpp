@@ -765,7 +765,7 @@ struct Phase1Smoke {
     ok&=check(waitForImport(window)&&window.sourcePaths()==paths&&window.structureLabels()==labels,"replace from pasted list removes legacy auto-added IRC and restores exact order and labels");
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
     window.referencesText_->clear();window.computationalDetails_->clear();window.detailsEdited_=true;
-    window.siOutputPath_->setText(folder.filePath("empty-details.docx"));
+    window.siOutputPath_->setText(folder.filePath("empty-details.docx"));window.xyzOutputPath_->setText(folder.filePath("empty-details.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return QFile::exists(window.siOutputPath_->text())&&window.status_->text().contains("생성 완료");}),"SI export succeeds with both computational details and references empty");
@@ -811,7 +811,7 @@ struct Phase1Smoke {
     const auto originalData=window.parsed_.value(paths[5]);
     window.fileNames_->setPlainText(rows.join('\n'));
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
-    const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);
+    const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);window.xyzOutputPath_->setText(folder.filePath("export-synced-labels.xyz"));
     chooseSiRendering(&window,QMessageBox::NoRole);
     window.findChild<QToolButton*>("generateSiButton")->click();
     ok&=check(waitUntil([&]{return QFile::exists(output)&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
@@ -1104,7 +1104,7 @@ struct Phase1Smoke {
     if(orderedDocx.open(QIODevice::ReadOnly)){const auto bytes=orderedDocx.readAll();auto visible=QString::fromUtf8(bytes);visible.remove(QRegularExpression("<[^>]*>"));ok&=check(visible.indexOf("3TS-freq")>=0&&visible.indexOf("3TS-freq")<visible.indexOf("1A-freq")&&visible.indexOf("1A-freq")<visible.indexOf("3A-freq"),"DOCX table rows use custom file order");}else ok=false;
     window.files_->selectRow(0);window.moveSelectedStructure(2);window.refreshDocumentModel();
     window.referencesText_->setPlainText("[1] SI output test reference.");
-    window.siOutputPath_->setText(folder.filePath("SI.docx"));
+    window.siOutputPath_->setText(folder.filePath("SI.docx"));window.xyzOutputPath_->setText(folder.filePath("SI.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
@@ -1296,7 +1296,7 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
-  ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))!=nullptr,"XYZ generate button");
+  ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
   auto* mime=new QMimeData;mime->setUrls({QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1]))});QDragEnterEvent enter(QPoint(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&enter);QDropEvent drop(QPointF(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&drop);ok&=check(waitUntil([table]{return table&&table->rowCount()==1;})&&Phase1Smoke::waitForImport(window),"Gaussian drop and parse");
   if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){
     const auto dir=qEnvironmentVariable("SI_NAV_SAMPLE_DIR");QDir().mkpath(dir);QTest::qWait(300);window.grab().save(dir+"/structures.png");
