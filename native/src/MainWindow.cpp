@@ -344,6 +344,55 @@ void MainWindow::dropEvent(QDropEvent* event){
   acceptPaths(paths);
   event->acceptProposedAction();
 }
+void MainWindow::linkSinglePoint(){
+  if(parsing_||files_->currentRow()<0)return;
+  const QString source=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();
+  const QString selection=QFileDialog::getOpenFileName(this,tr("Single-point Gaussian Output"),QFileInfo(source).absolutePath(),tr("Gaussian Files (*.out *.log)"));
+  if(selection.isEmpty())return;
+  si::GaussianParser parser;
+  const auto primary=parser.parse(std::filesystem::path(source.toStdWString()),false);
+  const auto candidate=parser.parse(std::filesystem::path(selection.toStdWString()),false);
+  if(!primary.success||!candidate.success||!candidate.scfEnergy||primary.finalGeometry.empty()||candidate.finalGeometry.empty()){
+    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("두 파일 모두 Gaussian 최종 구조가 필요하며 SPE에는 SCF 에너지가 있어야 합니다."));return;
+  }
+  bool valid=primary.finalGeometry.size()==candidate.finalGeometry.size();
+  if(valid)for(size_t i=0;i<primary.finalGeometry.size();++i)
+    if(primary.finalGeometry[i].atomicNumber!=candidate.finalGeometry[i].atomicNumber){valid=false;break;}
+  if(primary.charge&&candidate.charge&&primary.charge!=candidate.charge)valid=false;
+  if(primary.multiplicity&&candidate.multiplicity&&primary.multiplicity!=candidate.multiplicity)valid=false;
+  if(!valid){
+    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("원자 수·원소 순서·전하 또는 multiplicity가 일치하지 않습니다."));return;
+  }
+  const QString details=tr("파일: %1\\nMethod: %2\\nBasis: %3\\nCharge: %4\\nMultiplicity: %5\\nSCF energy: %6 Hartree\\n\\n선택 구조와 연결하시겠습니까?")
+    .arg(QFileInfo(selection).fileName(),QString::fromStdString(candidate.method),QString::fromStdString(candidate.basis))
+    .arg(candidate.charge?QString::number(*candidate.charge):QStringLiteral("N/A"))
+    .arg(candidate.multiplicity?QString::number(*candidate.multiplicity):QStringLiteral("N/A"))
+    .arg(*candidate.scfEnergy,0,'f',9);
+  if(QMessageBox::question(this,tr("SPE 연결 확인"),details)!=QMessageBox::Yes)return;
+  auto combined=std::make_shared<si::GaussianResult>(primary);
+  if(!candidate.spinDensities.empty()){
+    combined->spinDensities=candidate.spinDensities;
+    combined->spinBasisLevel=candidate.basisLevel;
+    combined->spinSourcePath=std::filesystem::path(selection.toStdWString());
+    combined->spinFallback=candidate.basisLevel!="TZVPP";
+  }
+  const QString absolute=QFileInfo(selection).absoluteFilePath();
+  manualPairedPaths_.insert(source,absolute);pairedPaths_.insert(source,absolute);
+  parsed_.insert(source,combined);parsed_.insert(absolute,std::make_shared<si::GaussianResult>(candidate));
+  selectStructure();refreshDocumentModel();
+  status_->setText(tr("SPE 수동 연결됨: %1").arg(absolute));
+}
+void MainWindow::unlinkSinglePoint(){
+  if(parsing_||files_->currentRow()<0)return;
+  const QString source=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();
+  manualPairedPaths_.remove(source);
+  const QString automatic=pairedSinglePointPath(source);
+  if(automatic.isEmpty())pairedPaths_.remove(source);else pairedPaths_.insert(source,automatic);
+  try{parsed_.insert(source,cache_->get(std::filesystem::path(source.toStdWString())));}
+  catch(const std::exception&){/* Offline project: retain the saved primary snapshot. */}
+  selectStructure();refreshDocumentModel();
+  status_->setText(tr("수동 SPE 연결 해제 · 자동 매칭 복구"));
+}
 void MainWindow::chooseFiles(){
   const auto selected=QFileDialog::getOpenFileNames(this,tr("Gaussian 출력 선택 (Select Gaussian Output)"),baseDirectory_->text(),tr("Gaussian Files (*.out *.log);;All Files (*.*)"),nullptr,QFileDialog::DontUseNativeDialog);
   if(!selected.isEmpty()){baseDirectory_->setText(QFileInfo(selected.front()).absolutePath());parsePaths(selected,true);}
@@ -399,6 +448,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   // A project replacement invalidates every callback from the previous import.
   // Workers own their cache and never access the window after it is destroyed.
   if(!append){
+    if(!restoringProject)manualPairedPaths_.clear();
     manualLabelsEdited_=false;namedImportLabels_.clear();
     ++importGeneration_;
     if(importWatcher_)importWatcher_->cancel();
@@ -513,7 +563,17 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
       try{
         item.pairPath=restoredPairedPaths.value(path).toString();
         if(item.pairPath.isEmpty())item.pairPath=pairedSinglePointPath(path);
-        if(!item.pairPath.isEmpty())item.pair=parse(item.pairPath);
+        if(!item.pairPath.isEmpty()){
+           item.pair=parse(item.pairPath);
+           if(item.pair&&item.pair->success&&!item.pair->spinDensities.empty()&&item.data){
+             auto combined=std::make_shared<si::GaussianResult>(*item.data);
+             combined->spinDensities=item.pair->spinDensities;
+             combined->spinBasisLevel=item.pair->basisLevel;
+             combined->spinSourcePath=std::filesystem::path(item.pairPath.toStdWString());
+             combined->spinFallback=item.pair->basisLevel!="TZVPP";
+             item.data=combined;
+           }
+         }
       }
       catch(const std::exception&){/* Primary parse already reports filesystem failures. */}
       if(promise.isCanceled())return;
@@ -867,6 +927,7 @@ bool MainWindow::saveProjectToPath(const QString& path){
       }
     }
   }
+  for(auto it=manualPairedPaths_.cbegin();it!=manualPairedPaths_.cend();++it)state.manualPairedPaths.insert(it.key(),it.value());
   QString error;if(!ProjectStore::save(path,state,&error)){QMessageBox::critical(this,tr("저장 실패 (Save Failed)"),error);return false;}currentProjectPath_=path;ProjectManagerDialog::rememberProject(path);status_->setText(tr("프로젝트 저장됨: %1").arg(path));return true;}
 void MainWindow::openProject(){
   const auto path=QFileDialog::getOpenFileName(this,tr("SI 프로젝트 열기 (Open Project)"),baseDirectory_->text(),tr("SI Project (*.si_project.json *.json)"));if(path.isEmpty())return;
@@ -876,7 +937,9 @@ bool MainWindow::loadProjectPath(const QString& path){
   ProjectState state;QString error;if(!ProjectStore::load(path,&state,&error)){QMessageBox::critical(this,tr("열기 실패 (Open Failed)"),error);return false;}
   if(!currentProjectPath_.isEmpty()&&!saveActiveProject())return false;
   pendingStructureLabels_=lines(state.structureNames);pendingLabelsByPath_.clear();for(int i=0;i<state.files.size();++i)pendingLabelsByPath_.insert(QFileInfo(state.files[i]).absoluteFilePath(),pendingStructureLabels_.value(i,QFileInfo(state.files[i]).completeBaseName()));
-  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(0);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
+  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;
+  manualPairedPaths_.clear();
+  for(auto it=state.manualPairedPaths.cbegin();it!=state.manualPairedPaths.cend();++it)manualPairedPaths_.insert(it.key(),it.value().toString());preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(0);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
   baseDirectory_->setText(QDir(state.baseDirectory).exists()?state.baseDirectory:projectDirectory.absolutePath());
   auto relocatedOutput=[&](const QString& previous,const QString& fallback){
     if(previous.trimmed().isEmpty())return projectDirectory.filePath(fallback);
