@@ -372,7 +372,7 @@ void MainWindow::linkSinglePoint(){
     combined->spinDensities=candidate.spinDensities;
     combined->spinBasisLevel=candidate.basisLevel;
     combined->spinSourcePath=std::filesystem::path(selection.toStdWString());
-    combined->spinFallback=candidate.basisLevel!="TZVPP";
+    combined->spinFallback=false;
   }
   const QString absolute=QFileInfo(selection).absoluteFilePath();
   manualPairedPaths_.insert(source,absolute);pairedPaths_.insert(source,absolute);
@@ -568,7 +568,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
              combined->spinDensities=item.pair->spinDensities;
              combined->spinBasisLevel=item.pair->basisLevel;
              combined->spinSourcePath=std::filesystem::path(item.pairPath.toStdWString());
-             combined->spinFallback=item.pair->basisLevel!="TZVPP";
+             combined->spinFallback=false;
              item.data=combined;
            }
          }
