@@ -1,6 +1,7 @@
 #include "ProjectManagerDialog.hpp"
 #include "ProjectStore.hpp"
 #include "WindowGeometry.hpp"
+#include "AppTheme.hpp"
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QTimer>
@@ -70,6 +71,7 @@ void ProjectManagerDialog::showEvent(QShowEvent* event){
 
 void ProjectManagerDialog::applyTheme(int index){
   const auto& theme=themes[std::clamp(index,0,2)];settings().setValue("projectManagerTheme",index);
+  applySiApplicationTheme(index);
   setStyleSheet(QString(R"(
     QDialog#projectManagerDialog, QScrollArea#projectManagerScroll, QScrollArea#projectManagerScroll > QWidget > QWidget {background:%3;}
     QLabel {color:#34465b;font-size:10pt;}
