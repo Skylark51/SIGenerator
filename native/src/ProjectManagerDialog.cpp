@@ -21,6 +21,7 @@
 #include <QStandardPaths>
 #include <QVBoxLayout>
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QToolButton>
 #include <QPainter>
 #include <algorithm>
@@ -47,6 +48,14 @@ ProjectManagerDialog::ProjectManagerDialog(QWidget* parent):QDialog(parent){
   auto* title=new QLabel(tr("Supporting Information을 위한 프로젝트를 생성 및 관리하세요."),this);title->setObjectName("managerTitle");title->setWordWrap(true);layout->addWidget(title);
   auto* note=new QLabel(tr("작업할 SI를 선택하거나 새 프로젝트를 만드세요.\n\n프로젝트 안에서 하위 반응 단계와 단계별 표를 구성할 수 있습니다."),this);note->setObjectName("managerIntro");note->setWordWrap(true);layout->addWidget(note);
   auto* recentHeading=new QLabel(tr("최근 프로젝트"),this);recentHeading->setObjectName("recentProjectsHeading");layout->addWidget(recentHeading);
+  auto* filters=new QHBoxLayout;
+  search_=new QLineEdit(this);search_->setObjectName("projectSearch");
+  search_->setPlaceholderText(tr("프로젝트 이름 또는 경로 검색"));
+  favoritesOnly_=new QCheckBox(tr("즐겨찾기만 보기"),this);
+  favoritesOnly_->setObjectName("favoriteProjectsOnly");
+  filters->addWidget(search_,1);filters->addWidget(favoritesOnly_);layout->addLayout(filters);
+  connect(search_,&QLineEdit::textChanged,this,[this]{page_=0;renderProjects();});
+  connect(favoritesOnly_,&QCheckBox::toggled,this,[this]{page_=0;renderProjects();});
   projects_=new QListWidget(this);projects_->setObjectName("recentProjectsList");projects_->setSpacing(5);projects_->setWordWrap(true);
   projects_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);projects_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);projects_->setFixedHeight(308);layout->addWidget(projects_);
   auto* paging=new QHBoxLayout;previous_=new QPushButton(tr("‹ 이전"),this);previous_->setObjectName("previousProjectPage");next_=new QPushButton(tr("다음 ›"),this);next_->setObjectName("nextProjectPage");pageLabel_=new QLabel(this);pageLabel_->setObjectName("projectPageLabel");paging->addStretch();paging->addWidget(previous_);paging->addWidget(pageLabel_);paging->addWidget(next_);layout->addLayout(paging);
@@ -114,6 +123,19 @@ void ProjectManagerDialog::refreshProjects(){
 void ProjectManagerDialog::renderProjects(const QString& preferredPath){
   projects_->clear();auto prefs=settings();auto paths=prefs.value("recentProjects").toStringList();const auto pinned=prefs.value("pinnedProjects").toStringList();const auto favorites=prefs.value("favoriteProjects").toStringList();
   std::stable_sort(paths.begin(),paths.end(),[&](const QString& a,const QString& b){return pinned.contains(a,Qt::CaseInsensitive)&&!pinned.contains(b,Qt::CaseInsensitive);});
+  const QString query=search_?search_->text().trimmed():QString();
+  const bool onlyFavorites=favoritesOnly_&&favoritesOnly_->isChecked();
+  QStringList filtered;
+  for(const auto& path:paths){
+    if(onlyFavorites&&!favorites.contains(path,Qt::CaseInsensitive))continue;
+    if(!query.isEmpty()){
+      ProjectState state;QString error;
+      const QString name=ProjectStore::load(path,&state,&error)&&!state.projectName.isEmpty()?state.projectName:projectName(path);
+      if(!name.contains(query,Qt::CaseInsensitive)&&!path.contains(query,Qt::CaseInsensitive))continue;
+    }
+    filtered.append(path);
+  }
+  paths=filtered;
   if(!preferredPath.isEmpty()){const auto index=paths.indexOf(preferredPath);if(index>=0)page_=index/projectsPerPage;}
   const int pages=std::max(1,(int(paths.size())+projectsPerPage-1)/projectsPerPage);page_=std::clamp(page_,0,pages-1);
   previous_->setEnabled(page_>0);next_->setEnabled(page_+1<pages);pageLabel_->setText(tr("%1 / %2 · 총 %3개").arg(page_+1).arg(pages).arg(paths.size()));
@@ -132,7 +154,7 @@ void ProjectManagerDialog::renderProjects(const QString& preferredPath){
     for(auto* label:card->findChildren<QLabel*>())label->setAttribute(Qt::WA_TransparentForMouseEvents);
     projects_->setItemWidget(item,card);item->setToolTip(available?path:error);
   }
-  if(paths.isEmpty()){auto* empty=new QListWidgetItem(tr("최근 프로젝트가 없습니다. 새 프로젝트를 만들거나 기존 프로젝트를 찾아 여세요."),projects_);empty->setFlags(Qt::NoItemFlags);}
+  if(paths.isEmpty()){auto* empty=new QListWidgetItem(query.isEmpty()&&!onlyFavorites?tr("최근 프로젝트가 없습니다. 새 프로젝트를 만들거나 기존 프로젝트를 찾아 여세요."):tr("일치하는 프로젝트가 없습니다."),projects_);empty->setFlags(Qt::NoItemFlags);}
   open_->setEnabled(false);if(!paths.isEmpty()){int current=0;for(int i=0;i<projects_->count();++i)if(projects_->item(i)->data(Qt::UserRole).toString()==preferredPath)current=i;projects_->setCurrentRow(current);}
 }
 
