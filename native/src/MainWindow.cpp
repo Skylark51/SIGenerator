@@ -326,9 +326,7 @@ QWidget* MainWindow::createQuickToolbar(){
   add("prepareFiguresAction",tr("분자 Figure 뷰 설정"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});
   bar->addSeparator();bar->addWidget(new QLabel(tr("내보내기  "),bar));
   auto* generateSi=add("generateSiButton",tr("전체 SI DOCX 생성"),navigationIcon("si",QColor("#087e8b")),[this]{exportSiDocument();});
-  generateSi->setText(tr("SI 생성"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(110);
-  add("generateCoordinatesButton",tr("전체 구조 좌표 DOCX 생성"),navigationIcon("coordinates",QColor("#087e8b")),[this]{exportCoordinatesDocument();});
-  add("generateXyzButton",tr("전체 구조 XYZ 파일 생성"),navigationIcon("xyz",QColor("#087e8b")),[this]{exportXyzDocument();});
+  generateSi->setText(tr("Generate SI + XYZ"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(185);
   auto* currentSection=new QLabel(labels[0],bar);currentSection->setObjectName("currentSectionLabel");bar->addWidget(currentSection);
   connect(inputPages_,&QStackedWidget::currentChanged,this,[this,currentSection,labels](int index){inputScroll_=qobject_cast<QScrollArea*>(inputPages_->widget(index));navigation_->button(index)->setChecked(true);currentSection->setText(labels[index]);});
   return bar;
@@ -966,9 +964,9 @@ bool MainWindow::loadProjectPath(const QString& path){
   activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,state.pairedSnapshotPaths);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));return true;
 }
 
-bool MainWindow::prepareFigures(){
-  if(!validateExport())return false;
-  if(activeStage_<0&&!reactionStages_.isEmpty()){const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){if(reactionStages_[i].toObject()["files"].toArray().isEmpty())continue;activeStage_=i;if(!prepareFigures()){activeStage_=previous;refreshStageWorkspace();return false;}}activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return true;}
+bool MainWindow::prepareFigures(bool preflightDone){
+  if(!preflightDone&&!validateExport())return false;
+  if(activeStage_<0&&!reactionStages_.isEmpty()){const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){if(reactionStages_[i].toObject()["files"].toArray().isEmpty())continue;activeStage_=i;if(!prepareFigures(true)){activeStage_=previous;refreshStageWorkspace();return false;}}activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return true;}
   if(documentModel_.coordinates.isEmpty()){QMessageBox::information(this,tr("분자 없음"),tr("먼저 Gaussian 구조를 추가하세요."));return false;}
   for(const auto& block:documentModel_.coordinates)if(block.atoms.empty()){QMessageBox::warning(this,tr("좌표 없음"),block.structureName+tr(": 렌더링할 좌표가 없습니다."));return false;}
   const bool selectedStage=activeStage_>=0&&activeStage_<reactionStages_.size();
@@ -998,7 +996,7 @@ void MainWindow::applyNamedLabelsForExport(){
   syncReferenceOptions();
   if(auto* item=files_->item(files_->currentRow(),0))structureLabel_->setText(item->text());
 }
-void MainWindow::exportSiDocument(){applyNamedLabelsForExport();if(!validateExport())return;
+void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabelsForExport();if(!validateExport())return;
   if(documentModel_.empty()){QMessageBox::warning(this,tr("입력 없음 (No Input)"),tr("먼저 Gaussian 파일이나 수동 표를 추가하세요."));return;}
   QMessageBox rendering(QMessageBox::Question,tr("SI Figure 렌더링"),
     tr("SI에 분자 Figure를 렌더링하여 포함하시겠습니까?\n표만 생성하면 Figure와 Figure 캡션을 제외합니다."),QMessageBox::NoButton,this);
@@ -1010,12 +1008,44 @@ void MainWindow::exportSiDocument(){applyNamedLabelsForExport();if(!validateExpo
   if(rendering.clickedButton()!=includeFigures&&rendering.clickedButton()!=tablesOnly)return;
   const bool renderFigures=rendering.clickedButton()==includeFigures;
   if(renderFigures&&!documentModel_.coordinates.isEmpty()){
-    if(reactionStages_.isEmpty()){if(!prepareFigures())return;}
-    else {const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){const auto stage=reactionStages_[i].toObject();if(stage["files"].toArray().isEmpty())continue;const auto id=stage.value("id").toString(stage["name"].toString());if(preparedStageFigures_.contains(id))continue;activeStage_=i;if(!prepareFigures()){activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return;}}activeStage_=previous;refreshStageWorkspace();refreshDocumentModel();}
+    if(reactionStages_.isEmpty()){if(!prepareFigures(true))return;}
+    else {const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){const auto stage=reactionStages_[i].toObject();if(stage["files"].toArray().isEmpty())continue;const auto id=stage.value("id").toString(stage["name"].toString());if(preparedStageFigures_.contains(id))continue;activeStage_=i;if(!prepareFigures(true)){activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return;}}activeStage_=previous;refreshStageWorkspace();refreshDocumentModel();}
   }
   auto model=documentModel_;
   if(!renderFigures){model.figures.clear();model.figureCaptions.clear();}
-  QString path=siOutputPath_->text().trimmed();if(path.isEmpty())path=QFileDialog::getSaveFileName(this,tr("SI 문서 생성 (Generate SI)"),baseDirectory_->text()+QStringLiteral("/SI.docx"),tr("Word Document (*.docx)"));if(path.isEmpty())return;if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");siOutputPath_->setText(path);status_->setText(tr("SI DOCX 생성 중…"));auto* watcher=new QFutureWatcher<QString>(this);connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,path]{const auto error=watcher->result();watcher->deleteLater();if(error.isEmpty())status_->setText(tr("SI 문서 생성 완료: %1").arg(path));else QMessageBox::critical(this,tr("문서 오류 (Document Error)"),error);});watcher->setFuture(QtConcurrent::run([path,model]{QString error;DocxWriter::writeDocument(path,model,&error);return error;}));}
+  QString path=siOutputPath_->text().trimmed();
+  if(path.isEmpty())path=QFileDialog::getSaveFileName(this,tr("SI 문서 생성 (Generate SI)"),baseDirectory_->text()+QStringLiteral("/SI.docx"),tr("Word Document (*.docx)"));
+  if(path.isEmpty())return;
+  if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");
+  QString xyz=xyzOutputPath_->text().trimmed();
+  if(xyz.isEmpty())xyz=QFileDialog::getSaveFileName(this,tr("XYZ 출력 경로"),QFileInfo(path).absoluteDir().filePath("Structures.xyz"),tr("XYZ coordinates (*.xyz)"));
+  if(xyz.isEmpty())return;
+  if(!xyz.endsWith(QStringLiteral(".xyz"),Qt::CaseInsensitive))xyz+=QStringLiteral(".xyz");
+  siOutputPath_->setText(path);xyzOutputPath_->setText(xyz);
+  generationRunning_=true;
+  if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(false);
+  status_->setText(tr("SI DOCX + XYZ 생성 중…"));
+  struct GenerationResult {bool docx{},xyz{};QString docxError,xyzError;};
+  auto* watcher=new QFutureWatcher<GenerationResult>(this);
+  connect(watcher,&QFutureWatcher<GenerationResult>::finished,this,[this,watcher,path,xyz]{
+    const auto result=watcher->result();
+    watcher->deleteLater();generationRunning_=false;
+    if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(true);
+    if(result.docx&&result.xyz){
+      status_->setText(tr("SI 문서 생성 완료: %1 · XYZ 생성 완료: %2").arg(path,xyz));
+    }else{
+      status_->setText(tr("생성 결과 · DOCX: %1 · XYZ: %2").arg(result.docx?tr("성공"):tr("실패"),result.xyz?tr("성공"):tr("실패")));
+      QMessageBox::warning(this,tr("SI + XYZ 생성 결과"),
+        tr("DOCX: %1\\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
+    }
+  });
+  watcher->setFuture(QtConcurrent::run([path,xyz,model]{
+    GenerationResult result;
+    result.docx=DocxWriter::writeDocument(path,model,&result.docxError);
+    result.xyz=si::XyzWriter::write(xyz,model,&result.xyzError);
+    return result;
+  }));
+}
 void MainWindow::exportCoordinatesDocument(){if(!validateExport())return;if(documentModel_.coordinates.isEmpty()){QMessageBox::warning(this,tr("좌표 없음 (No Coordinates)"),tr("최종 Gaussian geometry가 없습니다."));return;}QString path=QFileDialog::getSaveFileName(this,tr("Generate Coordinates DOCX"),baseDirectory_->text()+QStringLiteral("/Coordinates.docx"),tr("Word Document (*.docx)"));if(path.isEmpty())return;if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");const auto model=documentModel_;status_->setText(tr("Cartesian DOCX 생성 중…"));auto* watcher=new QFutureWatcher<QString>(this);connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,path]{const auto error=watcher->result();watcher->deleteLater();if(error.isEmpty())status_->setText(tr("Cartesian 문서 생성 완료: %1").arg(path));else QMessageBox::critical(this,tr("문서 오류 (Document Error)"),error);});watcher->setFuture(QtConcurrent::run([path,model]{QString error;DocxWriter::writeCoordinates(path,model,&error);return error;}));}
 
 void MainWindow::exportXyzDocument(){
