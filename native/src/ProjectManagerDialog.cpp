@@ -94,7 +94,7 @@ void ProjectManagerDialog::applyTheme(int index){
     QListWidget::item:selected {background:%2;border:2px solid %1;}
     QLabel#projectName {color:%1;font-size:13pt;font-weight:700;}
     QLabel#projectDetails {color:#51667c;font-size:9pt;}
-    QLabel#projectPath {color:#7b8999;font-size:8pt;}
+    QLabel#projectPath {color:#52647a;font-size:8pt;}
     QLabel#projectName[unavailable="true"] {color:#a05b65;}
     QPushButton,QToolButton {background:white;color:%1;border:1px solid #cbd9e5;border-radius:8px;padding:7px 12px;}
     QPushButton:hover,QToolButton:hover {background:%2;border-color:%1;}
