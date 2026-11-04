@@ -37,7 +37,7 @@ const QStringList tableKeys={"absolute","relative","spin","geometry"};
 
 QWidget* MainWindow::createStageNavigation(){
   auto* panel=new QWidget(this);panel->setObjectName("stageNavigator");panel->setMinimumWidth(175);panel->setMaximumWidth(310);auto* layout=new QVBoxLayout(panel);layout->setContentsMargins(10,12,8,10);
-  projectHeading_=new QLabel(tr("SI 프로젝트"),panel);projectHeading_->setWordWrap(true);projectHeading_->setStyleSheet("font-weight:600;font-size:12pt;color:#24486c");layout->addWidget(projectHeading_);
+  projectHeading_=new QLabel(tr("SI 프로젝트"),panel);projectHeading_->setWordWrap(true);projectHeading_->setObjectName("projectHeading");layout->addWidget(projectHeading_);
   auto* all=new QPushButton(tr("전체 SI"),panel);all->setObjectName("showFullSi");layout->addWidget(all);connect(all,&QPushButton::clicked,this,[this]{chooseStageScope(-1);});
   layout->addWidget(new QLabel(tr("반응 단계 · 드래그로 순서 변경"),panel));
   stageNavigation_=new QListWidget(panel);stageNavigation_->setObjectName("stageNavigation");stageNavigation_->setDragDropMode(QAbstractItemView::InternalMove);stageNavigation_->setDefaultDropAction(Qt::MoveAction);stageNavigation_->setSpacing(5);stageNavigation_->setWordWrap(true);stageNavigation_->setStyleSheet("QListWidget {background:transparent;border:0;} QListWidget::item {padding:12px 8px;border:1px solid #d8e1ec;border-radius:7px;background:white;} QListWidget::item:selected {background:#dceaff;color:#24486c;border-color:#7da6db;}");layout->addWidget(stageNavigation_,1);
@@ -66,7 +66,7 @@ QWidget* MainWindow::createStageNavigation(){
 
 QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   auto* box=new QGroupBox(tr("구조와 반응 구성"),parent);auto* layout=new QVBoxLayout(box);layout->setSpacing(8);
-  structureScope_=new QLabel(tr("전체 구조 보관함"),box);structureScope_->setWordWrap(true);structureScope_->setStyleSheet("font-weight:600;font-size:12pt;color:#24486c");layout->addWidget(structureScope_);
+  structureScope_=new QLabel(tr("전체 구조 보관함"),box);structureScope_->setWordWrap(true);structureScope_->setObjectName("structureScope");layout->addWidget(structureScope_);
   stageSettings_=new QWidget(box);auto* stageLayout=new QVBoxLayout(stageSettings_);stageLayout->setContentsMargins(0,0,0,0);
   stageNameEdit_=new QLineEdit(stageSettings_);stageNameEdit_->setObjectName("activeStageName");stageNameEdit_->setPlaceholderText(tr("반응 단계 이름"));stageLayout->addWidget(stageNameEdit_);
   auto* referenceRow=new QHBoxLayout;referenceRow->addWidget(new QLabel(tr("기준 구조"),stageSettings_));stageReference_=new QComboBox(stageSettings_);stageReference_->setObjectName("activeStageReference");referenceRow->addWidget(stageReference_,1);stageLayout->addLayout(referenceRow);
