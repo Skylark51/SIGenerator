@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
     const auto paired=QDir(oldFolder).filePath("independent-spe.out");
     QFile source(original);
     if(!source.open(QIODevice::WriteOnly))return 1;
-    source.write("#p b3lyp/def2svp freq\\nSCF Done: E(RB3LYP) = -100.0\\n");source.close();
+    source.write("#p b3lyp/def2svp freq\nSCF Done: E(RB3LYP) = -100.0\n");source.close();
     ProjectState portable;
     portable.projectName="Relocated";
     portable.files={original};
@@ -84,12 +84,12 @@ int main(int argc, char** argv) {
       file.write(contents);file.close();
       return parser.parse(std::filesystem::path(path.toStdWString()),false);
     };
-    const QByteArray job="Entering Gaussian System\\n#p b3lyp/def2svp opt\\n\\nSCF Done: E(RB3LYP) = -100.00000 A.U.\\n";
-    const QByteArray success="Normal termination of Gaussian 16\\n";
+    const QByteArray job="Entering Gaussian System\n#p b3lyp/def2svp opt\n\nSCF Done: E(RB3LYP) = -100.00000 A.U.\n";
+    const QByteArray success="Normal termination of Gaussian 16\n";
     const auto single=parseText("single.out",job+success);
-    const auto failed=parseText("failed.out",job+"Error termination via Lnk1e\\n");
-    const auto linkFailed=parseText("link-failed.out",job+success+"--Link1--\\n"+job+"Error termination via Lnk1e\\n");
-    const auto linkSuccess=parseText("link-success.out",job+success+"--Link1--\\n"+job+success);
+    const auto failed=parseText("failed.out",job+"Error termination via Lnk1e\n");
+    const auto linkFailed=parseText("link-failed.out",job+success+"--Link1--\n"+job+"Error termination via Lnk1e\n");
+    const auto linkSuccess=parseText("link-success.out",job+success+"--Link1--\n"+job+success);
     ok&=check(single.normalTermination,"single-job final normal termination");
     ok&=check(!failed.normalTermination,"single-job error termination");
     ok&=check(!linkFailed.normalTermination,"earlier normal termination does not mask last failed Link1 job");
