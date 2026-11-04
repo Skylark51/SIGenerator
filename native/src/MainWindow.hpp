@@ -97,6 +97,8 @@ private:
   QWidget* createQuickToolbar();
   void connectPreviewInputs();
   void chooseFiles();
+  void linkSinglePoint();
+  void unlinkSinglePoint();
   void chooseDirectory();
   void addNamedFiles(bool replace=false);
   void acceptPaths(const QStringList& paths);
@@ -200,6 +202,7 @@ private:
   si::SIDocumentModel documentModel_;
   std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>()};
   QHash<QString,QString> pairedPaths_;
+  QHash<QString,QString> manualPairedPaths_;
   QHash<QString,std::shared_ptr<const si::GaussianResult>> parsed_;
   QStringList pendingStructureLabels_;
   QHash<QString,QString> pendingLabelsByPath_;
