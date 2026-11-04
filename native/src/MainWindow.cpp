@@ -704,6 +704,16 @@ QStringList MainWindow::preflightErrors() const{
     }
     if(spinGroups[row].size()!=spinGroups.front().size())errors.append(tr("스핀 원자 ID: 모든 행의 원자 수가 같아야 합니다."));
   }
+  for(int recordIndex=0;recordIndex<files_->rowCount()&&!spinGroups.isEmpty();++recordIndex){
+    if(spinGroups.size()>1&&spinGroups.size()!=files_->rowCount())break;
+    const auto path=files_->item(recordIndex,0)->data(Qt::UserRole).toString();
+    const auto parsed=parsed_.value(path);
+    if(!parsed)continue;
+    const auto& selected=spinGroups.size()==1?spinGroups.front():spinGroups[recordIndex];
+    for(const int atomId:selected)if(atomId<=0||static_cast<size_t>(atomId)>parsed->finalGeometry.size()){
+      errors.append(tr("구조 '%1': 존재하지 않는 스핀 원자 ID %2").arg(files_->item(recordIndex,0)->text()).arg(atomId));
+    }
+  }
   return errors;
 }
 bool MainWindow::validateExport(){
@@ -847,13 +857,15 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       for(size_t i=0;i<std::min<size_t>(6,ranked.size());++i)ids.append(ranked[i].first);
     }else ids=groups.front();
     const bool completeSpinMapping=groups.isEmpty()||groups.size()==1||groups.size()==static_cast<int>(records.size());
+    const bool perStructureIds=groups.size()==static_cast<int>(records.size())&&groups.size()>1&&
+      std::any_of(groups.cbegin()+1,groups.cend(),[&](const QVector<int>& group){return group!=groups.front();});
     if(!ids.isEmpty()&&completeSpinMapping){
       bool allTz=true;for(const auto& record:records)allTz=allTz&&record.frequency.spinBasisLevel=="TZVPP";
       QString caption=tr("Mulliken Spin Density Distributions of %1.").arg(si::displayMechanism(model));
       if(allTz)caption+=tr(" Calculated at the Def2-TZVPP level.");
       si::DocumentTable table{si::DocumentSection::SpinDensity,caption,{QString()},{},{}};
       int width=ids.size();for(const auto& group:groups)width=std::max(width,static_cast<int>(group.size()));
-      for(int col=0;col<width;++col)table.headers.append(col<ids.size()?atomLabel(records.front().frequency,ids[col],spinAtomNumbers_->isChecked()):tr("Atom %1").arg(col+1));
+      for(int col=0;col<width;++col)table.headers.append(perStructureIds?tr("Selected atom %1").arg(col+1):(col<ids.size()?atomLabel(records.front().frequency,ids[col],spinAtomNumbers_->isChecked()):tr("Atom %1").arg(col+1)));
       table.headers.append(QStringLiteral("Rest"));table.headers.append(QStringLiteral("Sum"));
       const auto names=lines(spinNames_->toPlainText());
       for(size_t index=0;index<records.size();++index){
@@ -866,7 +878,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
         for(const int id:current){
           std::optional<double> value;
           for(const auto& spin:record.frequency.spinDensities)if(spin.atomIndex==id){value=spin.spin;break;}
-          row.append(number(value,3,precision));
+          row.append(perStructureIds?(atomLabel(record.frequency,id,true)+QStringLiteral(": ")+number(value,3,precision)):number(value,3,precision));
         }
         while(row.size()<table.headers.size()-2)row.append(QStringLiteral("N/A"));
         row.append(record.frequency.spinDensities.empty()?QStringLiteral("N/A"):si::formatNumber(rest,3,precision));
