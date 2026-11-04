@@ -27,6 +27,28 @@ int main(int argc, char** argv) {
   const auto fallbackSpin=parser.parse(fixtures / "spin-fallback-freq.out");
   const auto invalidSibling=parser.parse(fixtures / "spin-invalid-freq.out");
   bool ok=true;
+
+  {
+    QTemporaryDir jobCases;
+    auto parseText=[&](const QString& fileName,const QByteArray& contents){
+      const auto path=jobCases.filePath(fileName);
+      QFile file(path);
+      if(!file.open(QIODevice::WriteOnly))return si::GaussianResult{};
+      file.write(contents);file.close();
+      return parser.parse(std::filesystem::path(path.toStdWString()),false);
+    };
+    const QByteArray job="Entering Gaussian System\\n#p b3lyp/def2svp opt\\n\\nSCF Done: E(RB3LYP) = -100.00000 A.U.\\n";
+    const QByteArray success="Normal termination of Gaussian 16\\n";
+    const auto single=parseText("single.out",job+success);
+    const auto failed=parseText("failed.out",job+"Error termination via Lnk1e\\n");
+    const auto linkFailed=parseText("link-failed.out",job+success+"--Link1--\\n"+job+"Error termination via Lnk1e\\n");
+    const auto linkSuccess=parseText("link-success.out",job+success+"--Link1--\\n"+job+success);
+    ok&=check(single.normalTermination,"single-job final normal termination");
+    ok&=check(!failed.normalTermination,"single-job error termination");
+    ok&=check(!linkFailed.normalTermination,"earlier normal termination does not mask last failed Link1 job");
+    ok&=check(linkSuccess.normalTermination,"all Link1 jobs normally terminate");
+  }
+
   {
     si::EnergyRecord ref,rotated,changed;
     ref.frequency.finalGeometry={{6,"C",{0,0,0}},{6,"C",{1.4,0,0}},{8,"O",{0,1.3,0}},{1,"H",{0,0,1.0}}};
