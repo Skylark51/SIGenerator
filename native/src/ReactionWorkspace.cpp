@@ -119,11 +119,13 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   auto* nameRow=new QHBoxLayout;stageLabelEdit_=new QLineEdit(box);stageLabelEdit_->setObjectName("workspaceStructureName");stageLabelEdit_->setPlaceholderText(tr("선택 구조 이름 · 프로젝트 전체에 반영"));nameRow->addWidget(stageLabelEdit_,1);
   stageLabelPreview_=new QLabel(box);stageLabelPreview_->setTextFormat(Qt::RichText);nameRow->addWidget(stageLabelPreview_);layout->addLayout(nameRow);connect(stageLabelEdit_,&QLineEdit::textEdited,this,[this](const QString& text){if(!updatingStageWorkspace_&&stageGrid_->currentRow()>=0&&!text.trimmed().isEmpty())stageGrid_->item(stageGrid_->currentRow(),0)->setText(text);});
   auto* formatRow=new QHBoxLayout;for(const auto& marker:QStringList{"^","_"}){auto* button=new QPushButton(marker=="^"?tr("위첨자 x²"):tr("아래첨자 x₂"),box);button->setFocusPolicy(Qt::NoFocus);formatRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,marker]{const int start=stageLabelEdit_->selectionStart();if(start<0){status_->setText(tr("구조명에서 첨자로 만들 글자를 선택하세요."));return;}const int length=stageLabelEdit_->selectedText().size();auto text=stageLabelEdit_->text();text.replace(start,length,marker+"{"+stageLabelEdit_->selectedText()+"}");stageLabelEdit_->setText(text);if(stageGrid_->currentRow()>=0)stageGrid_->item(stageGrid_->currentRow(),0)->setText(text);stageLabelEdit_->setFocus();stageLabelEdit_->setSelection(start+2,length);});}formatRow->addStretch();auto* details=new QPushButton(tr("추출 정보 보기…"),box);details->setObjectName("showExtractionDetails");formatRow->addWidget(details);connect(details,&QPushButton::clicked,this,&MainWindow::showExtractionDetails);
-  auto* pair=new QPushButton(tr("SPE Output 연결…"),box);pair->setObjectName("linkSinglePointButton");
-  formatRow->addWidget(pair);connect(pair,&QPushButton::clicked,this,&MainWindow::linkSinglePoint);
-  auto* unpair=new QPushButton(tr("SPE 수동 연결 해제"),box);unpair->setObjectName("unlinkSinglePointButton");
-  formatRow->addWidget(unpair);connect(unpair,&QPushButton::clicked,this,&MainWindow::unlinkSinglePoint);
   layout->addLayout(formatRow);
+  auto* pairingRow=new QHBoxLayout;
+  auto* pair=new QPushButton(tr("SPE Output 연결…"),box);pair->setObjectName("linkSinglePointButton");
+  pairingRow->addWidget(pair);connect(pair,&QPushButton::clicked,this,&MainWindow::linkSinglePoint);
+  auto* unpair=new QPushButton(tr("SPE 수동 연결 해제"),box);unpair->setObjectName("unlinkSinglePointButton");
+  pairingRow->addWidget(unpair);connect(unpair,&QPushButton::clicked,this,&MainWindow::unlinkSinglePoint);
+  layout->addLayout(pairingRow);
   auto* pasteTitles=new QPushButton(tr("제목만 일괄 붙여넣기 (선택 행부터)"),box);
   pasteTitles->setObjectName("pasteStructureTitles");
   pasteTitles->setToolTip(tr("엑셀에서 제목 한 열을 복사하세요. 선택한 구조 행부터 순서대로 제목만 교체하며 Output 연결은 유지합니다."));
