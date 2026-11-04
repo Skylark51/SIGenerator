@@ -29,16 +29,16 @@ inline QString siEditorStyle(int index) {
   
     QLabel#projectHeading, QLabel#structureScope {font-weight:600;font-size:12pt;color:#24486c}
 )SI_STYLE");
-  css.replace(QStringLiteral("#f4f7fb"),QStringLiteral(theme==0?"#f1f7fd":theme==1?"#f0f8f3":"#f8f4fc"));
-  css.replace(QStringLiteral("#e4edf7"),QStringLiteral(theme==0?"#e4edf7":theme==1?"#e4f3eb":"#f0e9fa"));
-  css.replace(QStringLiteral("#d6e5f5"),QStringLiteral(theme==0?"#d6e5f5":theme==1?"#d4eadd":"#e8dbf6"));
-  css.replace(QStringLiteral("#c7dcef"),QStringLiteral(theme==0?"#c7dcef":theme==1?"#c4e1d2":"#dbccf1"));
-  css.replace(QStringLiteral("#dceaff"),QStringLiteral(theme==0?"#dceaff":theme==1?"#d7efe1":"#e8def8"));
-  css.replace(QStringLiteral("#7da6db"),QStringLiteral(theme==0?"#7da6db":theme==1?"#64ad8c":"#a78bd4"));
-  css.replace(QStringLiteral("#387bc3"),QStringLiteral(theme==0?"#387bc3":theme==1?"#287466":"#7552a8"));
-  css.replace(QStringLiteral("#24486c"),QStringLiteral(theme==0?"#24486c":theme==1?"#235e53":"#614187"));
-  css.replace(QStringLiteral("#b8d8ff"),QStringLiteral(theme==0?"#b8d8ff":theme==1?"#c1e8d1":"#e2cdf7"));
-  css.replace(QStringLiteral("#7aaee8"),QStringLiteral(theme==0?"#7aaee8":theme==1?"#5ba88c":"#9876ce"));
+  css.replace(QStringLiteral("#f4f7fb"),QString::fromLatin1(theme==0?"#f1f7fd":theme==1?"#f0f8f3":"#f8f4fc"));
+  css.replace(QStringLiteral("#e4edf7"),QString::fromLatin1(theme==0?"#e4edf7":theme==1?"#e4f3eb":"#f0e9fa"));
+  css.replace(QStringLiteral("#d6e5f5"),QString::fromLatin1(theme==0?"#d6e5f5":theme==1?"#d4eadd":"#e8dbf6"));
+  css.replace(QStringLiteral("#c7dcef"),QString::fromLatin1(theme==0?"#c7dcef":theme==1?"#c4e1d2":"#dbccf1"));
+  css.replace(QStringLiteral("#dceaff"),QString::fromLatin1(theme==0?"#dceaff":theme==1?"#d7efe1":"#e8def8"));
+  css.replace(QStringLiteral("#7da6db"),QString::fromLatin1(theme==0?"#7da6db":theme==1?"#64ad8c":"#a78bd4"));
+  css.replace(QStringLiteral("#387bc3"),QString::fromLatin1(theme==0?"#387bc3":theme==1?"#287466":"#7552a8"));
+  css.replace(QStringLiteral("#24486c"),QString::fromLatin1(theme==0?"#24486c":theme==1?"#235e53":"#614187"));
+  css.replace(QStringLiteral("#b8d8ff"),QString::fromLatin1(theme==0?"#b8d8ff":theme==1?"#c1e8d1":"#e2cdf7"));
+  css.replace(QStringLiteral("#7aaee8"),QString::fromLatin1(theme==0?"#7aaee8":theme==1?"#5ba88c":"#9876ce"));
   return css;
 }
 inline void applySiApplicationTheme(int index) {
