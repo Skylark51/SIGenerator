@@ -52,28 +52,40 @@ QString sequenceCaption(const QString& label,const QString& sequence,int number,
     .arg(run(label,true),field(QStringLiteral("SEQ %1 \\* ARABIC \\* CHARFORMAT").arg(sequence),QString::number(number),true),run(QStringLiteral(". "),true),styledRuns(title));
 }
 
-QString cell(const QString& value,bool bold,bool header=false,bool first=false,int halfPoints=18) {
+QString cell(const QString& value,bool bold,bool header=false,bool first=false,int halfPoints=18,int widthTwips=0) {
   QString text=value;text.replace(QRegularExpression(QStringLiteral("[\\r\\n\\x{2028}\\x{2029}]+")),QStringLiteral(" "));
   if(first&&!header)text=si::structureLabelMarkup(text);
+  const QString noWrap=(!header&&!first)?QStringLiteral("<w:noWrap/>"):QString();
   const QString rule=header?QStringLiteral("<w:tcBorders><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/></w:tcBorders>"):QString();
-  return QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"0\" w:type=\"auto\"/>%1<w:noWrap/><w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%2</w:p></w:tc>")
-    .arg(rule,styledRuns(text,bold,halfPoints));
+  return QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%3\" w:type=\"dxa\"/>%1%4<w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%2</w:p></w:tc>")
+    .arg(rule,styledRuns(text,bold,halfPoints)).arg(widthTwips).arg(noWrap);
 }
 
 QString tableXml(const si::DocumentTable& source) {
   if(source.headers.isEmpty())return {};
   const int columnCount=static_cast<int>(source.headers.size());
   const int halfPoints=source.section==si::DocumentSection::RelativeEnergy&&columnCount>8?16:18;
-  QString table=QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"5000\" w:type=\"pct\"/><w:jc w:val=\"center\"/><w:tblBorders><w:top w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:left w:val=\"nil\"/><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:right w:val=\"nil\"/><w:insideH w:val=\"nil\"/><w:insideV w:val=\"nil\"/></w:tblBorders><w:tblLayout w:type=\"autofit\"/><w:tblCellMar><w:left w:w=\"40\" w:type=\"dxa\"/><w:right w:w=\"40\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr><w:tblGrid>");
+  // US Letter, 1-inch side margins: 9360 twips available for the body.
+  constexpr int usableWidth=9360;
+  const int labelWidth=columnCount==1?usableWidth:(columnCount>=9?1800:columnCount>=7?2100:2700);
+  QVector<int> widths(columnCount);
+  if(columnCount==1)widths[0]=usableWidth;
+  else {
+    widths[0]=labelWidth;
+    const int numericWidth=(usableWidth-labelWidth)/(columnCount-1);
+    for(int column=1;column<columnCount;++column)widths[column]=numericWidth;
+    widths.back()+=usableWidth-labelWidth-numericWidth*(columnCount-1);
+  }
+  QString table=QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"5000\" w:type=\"pct\"/><w:jc w:val=\"center\"/><w:tblBorders><w:top w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:left w:val=\"nil\"/><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:right w:val=\"nil\"/><w:insideH w:val=\"nil\"/><w:insideV w:val=\"nil\"/></w:tblBorders><w:tblLayout w:type=\"fixed\"/><w:tblCellMar><w:left w:w=\"40\" w:type=\"dxa\"/><w:right w:w=\"40\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr><w:tblGrid>");
   // Let Word size columns from their contents, then fit the table to the page.
   // Equal preferred cell widths can wrap long headers despite noWrap.
-  for(int column=0;column<columnCount;++column)table+=QStringLiteral("<w:gridCol/>");
+  for(int column=0;column<columnCount;++column)table+=QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(widths[column]);
   table+=QStringLiteral("</w:tblGrid><w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>");
-  for(const auto& heading:source.headers)table+=cell(heading,true,true,false,halfPoints);
+  for(int column=0;column<columnCount;++column)table+=cell(source.headers[column],true,true,false,halfPoints,widths[column]);
   table+=QStringLiteral("</w:tr>");
   for(const auto& row:source.rows){
     table+=QStringLiteral("<w:tr><w:trPr><w:cantSplit/></w:trPr>");
-    for(int column=0;column<columnCount;++column)table+=cell(column<row.size()?row[column]:QStringLiteral("N/A"),column==0||source.boldColumns.contains(column),false,column==0,halfPoints);
+    for(int column=0;column<columnCount;++column)table+=cell(column<row.size()?row[column]:QStringLiteral("N/A"),column==0||source.boldColumns.contains(column),false,column==0,halfPoints,widths[column]);
     table+=QStringLiteral("</w:tr>");
   }
   return paragraph(QString())+table+QStringLiteral("</w:tbl>")+paragraph(QString());
