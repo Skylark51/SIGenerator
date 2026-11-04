@@ -35,7 +35,9 @@ QJsonValue portablePaths(const QJsonValue& value,const QDir& folder,bool loading
     return value;
   }
   if(!QFileInfo(input).isAbsolute())return value;
-  const auto projectPrefix=QDir::cleanPath(folder.absolutePath())+"/";
+  const auto projectRoot=QDir::cleanPath(folder.absolutePath());
+  if(input.compare(projectRoot,Qt::CaseInsensitive)==0)return QStringLiteral(".");
+  const auto projectPrefix=projectRoot+"/";
   if(!input.startsWith(projectPrefix,Qt::CaseInsensitive))return value;
   return folder.relativeFilePath(input);
 }
@@ -64,7 +66,7 @@ bool ProjectStore::load(const QString& path, ProjectState* state, QString* error
   auto object=document.object();
   if(object.value("version").toInt(3)>=9){
     const QDir folder(QFileInfo(path).absolutePath());
-    for(const char* key:{"structures","reaction_stages","molecular_figures","reference_settings","gaussian_snapshots","paired_snapshot_paths"})
+    for(const char* key:{"structures","reaction_stages","molecular_figures","reference_settings","gaussian_snapshots","paired_snapshot_paths","manual_paired_paths"})
       object.insert(QLatin1String(key),portablePaths(object.value(QLatin1String(key)),folder,true));
     auto outputs=object.value("output_paths").toObject();
     for(const char* key:{"base_dir","si_path","xyz_path"}){
