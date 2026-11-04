@@ -10,6 +10,7 @@
 #include "si/XyzWriter.hpp"
 #include <QTemporaryDir>
 #include <QFile>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -27,6 +28,52 @@ int main(int argc, char** argv) {
   const auto fallbackSpin=parser.parse(fixtures / "spin-fallback-freq.out");
   const auto invalidSibling=parser.parse(fixtures / "spin-invalid-freq.out");
   bool ok=true;
+
+  {
+    QTemporaryDir portability;
+    const auto oldFolder=portability.filePath("old-project");
+    const auto newFolder=portability.filePath("moved-project");
+    QDir().mkpath(oldFolder);QDir().mkpath(newFolder);
+    const auto original=QDir(oldFolder).filePath("sample-freq.out");
+    const auto paired=QDir(oldFolder).filePath("independent-spe.out");
+    QFile source(original);
+    if(!source.open(QIODevice::WriteOnly))return 1;
+    source.write("#p b3lyp/def2svp freq\\nSCF Done: E(RB3LYP) = -100.0\\n");source.close();
+    ProjectState portable;
+    portable.projectName="Relocated";
+    portable.files={original};
+    portable.structureNames="A";
+    portable.baseDirectory=oldFolder;
+    portable.siPath=QDir(oldFolder).filePath("SI.docx");
+    portable.pairedSnapshotPaths.insert(original,paired);
+    portable.manualPairedPaths.insert(original,paired);
+    portable.gaussianSnapshots.insert(original,QJsonObject{{"test",true}});
+    portable.reactionStages={QJsonObject{{"name","Stage 1"},{"files",QJsonArray{original}},{"reference",original},
+      {"structure_relative_values",QJsonObject{{original,QJsonObject{{"E_{Total}","0.00"}}}}}}};
+    portable.figureSettings=QJsonObject{{"views",QJsonObject{{original,QJsonObject{{"yaw",10.0}}}}}};
+    QString error;
+    const auto oldProject=QDir(oldFolder).filePath("project.si_project.json");
+    const auto newProject=QDir(newFolder).filePath("project.si_project.json");
+    ok&=check(ProjectStore::save(oldProject,portable,&error),"save portable v9 project");
+    QFile saved(oldProject);saved.open(QIODevice::ReadOnly);
+    const auto json=QJsonDocument::fromJson(saved.readAll()).object();saved.close();
+    ok&=check(json.value("version").toInt()==9&&
+      json.value("structures").toArray().first().toObject().value("main_file").toString()=="sample-freq.out",
+      "v9 project stores project-local Gaussian paths relatively");
+    ok&=check(QFile::copy(oldProject,newProject)&&QFile::copy(original,QDir(newFolder).filePath("sample-freq.out")),
+      "copy portable project to a new folder");
+    ProjectState relocated;
+    ok&=check(ProjectStore::load(newProject,&relocated,&error)&&
+      relocated.files.value(0)==QDir(newFolder).filePath("sample-freq.out")&&
+      relocated.baseDirectory==newFolder&&
+      relocated.pairedSnapshotPaths.value(relocated.files.value(0)).toString()==QDir(newFolder).filePath("independent-spe.out")&&
+      relocated.manualPairedPaths.value(relocated.files.value(0)).toString()==QDir(newFolder).filePath("independent-spe.out")&&
+      relocated.gaussianSnapshots.contains(relocated.files.value(0))&&
+      relocated.figureSettings.value("views").toObject().contains(relocated.files.value(0))&&
+      relocated.reactionStages.first().toObject().value("reference").toString()==relocated.files.value(0),
+      "moved project restores files, reference, snapshots, SPE and Figure paths");
+  }
+
 
   {
     QTemporaryDir jobCases;
