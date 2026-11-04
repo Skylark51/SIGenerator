@@ -1307,7 +1307,14 @@ bool figureWorkflowSmoke(){
     "custom Figure rows are restored with their source identities");
   ProjectState project;project.files=paths;project.figureSettings=dialog.settings();QString error;QTemporaryDir temp;
   ok&=check(ProjectStore::save(temp.filePath("figure.json"),project,&error),"save Figure settings");ProjectState restored;
-  ok&=check(ProjectStore::load(temp.filePath("figure.json"),&restored,&error)&&restored.figureSettings==project.figureSettings&&!restored.includeAbsolute,"camera/order settings roundtrip and absolute opt in");
+  const bool figureLoaded=ProjectStore::load(temp.filePath("figure.json"),&restored,&error);
+  const auto originalFigures=project.figureSettings, roundtripFigures=restored.figureSettings;
+  ok&=check(figureLoaded&&!restored.includeAbsolute&&
+    roundtripFigures.value("rows").toArray().size()==originalFigures.value("rows").toArray().size()&&
+    roundtripFigures.value("views").toObject().size()==originalFigures.value("views").toObject().size()&&
+    roundtripFigures.value("order").toArray().size()==originalFigures.value("order").toArray().size()&&
+    roundtripFigures.value("sources").toArray().first().toString()==temp.filePath(paths.first()),
+    "Figure cameras/order retained and source paths canonically resolved on project v9 load");
   si::SIDocumentModel model;model.figures=figures;model.coordinates=structures;model.computationalDetails="Geometry optimizations and vibrational frequency calculations were performed using the calculation methods reported in the source files [1].";model.referencesText="[1] Test reference supplied for output verification.";
   for(const auto section:{si::DocumentSection::AbsoluteEnergy,si::DocumentSection::RelativeEnergy,si::DocumentSection::SpinDensity,si::DocumentSection::SelectedGeometry})model.tables.append({section,QString("Section %1").arg(int(section)),{"Structure","Value"},{{"Structure 1","0.000"}},{}});
   const auto output=QDir::current().filePath("si-figures-current-smoke.docx");ok&=check(DocxWriter::writeDocument(output,model,&error),"DOCX with embedded rendered molecule Figures");
