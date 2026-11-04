@@ -408,7 +408,7 @@ struct Phase1Smoke {
     cards->itemWidget(cards->item(0))->findChild<QToolButton*>("favoriteProject")->click();library.findChild<QToolButton*>("projectTheme2")->click();
     ProjectManagerDialog restored;auto* restoredCards=restored.findChild<QListWidget*>("recentProjectsList");
     ok&=check(restoredCards->item(0)->data(Qt::UserRole).toString()==pinnedPath&&restoredCards->itemWidget(restoredCards->item(0))->findChild<QToolButton*>("favoriteProject")->isChecked()&&restored.findChild<QToolButton*>("projectTheme2")->isChecked(),"pin heart and theme persist across project managers");
-    ok&=check(QApplication::styleSheet().contains("#f8f4fc"),"project theme also applies to editor application stylesheet");
+    ok&=check(qApp->styleSheet().contains("#f8f4fc"),"project theme also applies to editor application stylesheet");
     auto* search=restored.findChild<QLineEdit*>("projectSearch");
     auto* favoritesOnly=restored.findChild<QCheckBox*>("favoriteProjectsOnly");
     search->setText("Library 15");
@@ -1333,7 +1333,9 @@ int main(int argc,char** argv){
         "splitter keeps all three panels reachable at requested window sizes");
     }
     window.resize(1480,900);QCoreApplication::processEvents();
-    splitter->moveSplitter(260,1);QCoreApplication::processEvents();
+    splitter->setSizes({260,540,540});
+    QMetaObject::invokeMethod(splitter,"splitterMoved",Qt::DirectConnection,Q_ARG(int,260),Q_ARG(int,1));
+    QCoreApplication::processEvents();
     QSettings prefs("SI Generator","SIGeneratorTests");
     const auto saved=prefs.value("mainSplitterState").toByteArray();
     const auto before=splitter->sizes();
