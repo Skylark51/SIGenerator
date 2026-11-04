@@ -116,7 +116,7 @@ private:
   QJsonArray reactionStages_;
   void exportSiDocument();
   void applyNamedLabelsForExport();
-  bool prepareFigures();
+  bool prepareFigures(bool preflightDone=false);
   QJsonObject figureSettings_;
   QVector<si::DocumentFigure> preparedFigures_;
   QHash<QString,QVector<si::DocumentFigure>> preparedStageFigures_;
@@ -151,6 +151,7 @@ private:
   QComboBox* reference_{};
   QString pendingReferencePath_;
   bool parsing_{};
+  bool generationRunning_{};
   quint64 importGeneration_{};
   QFutureWatcherBase* importWatcher_{};
   struct ImportRequest { QList<QString> paths; bool discoverIrc{true}; QString stageId; };
