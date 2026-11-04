@@ -146,6 +146,12 @@ MainWindow::MainWindow(){
   setObjectName(QStringLiteral("mainWindow"));setAcceptDrops(true);setWindowTitle(tr("SI Generator — 네이티브 (Native)"));resize(1480,900);
   auto* fileMenu=menuBar()->addMenu(tr("파일 (File)"));fileMenu->addAction(tr("Gaussian 파일 열기 (Open Files)…"),QKeySequence::Open,this,&MainWindow::chooseFiles);fileMenu->addAction(tr("고급 · 단계 일괄 구성…"),this,&MainWindow::editReactionStages);fileMenu->addAction(tr("프로젝트 관리…"),this,&MainWindow::projectManagerRequested);fileMenu->addAction(tr("프로젝트 열기 (Open Project)…"),this,&MainWindow::openProject);fileMenu->addAction(tr("프로젝트 저장 (Save Project)…"),QKeySequence::Save,this,&MainWindow::saveProject);
   auto* splitter=new QSplitter(Qt::Horizontal,this);mainSplitter_=splitter;splitter->setObjectName(QStringLiteral("mainSplitter"));splitter->addWidget(createStageNavigation());splitter->addWidget(createInputPanel());splitter->addWidget(createWorkspace());splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setStretchFactor(2,1);splitter->setSizes({210,635,635});
+  connect(splitter,&QSplitter::splitterMoved,this,[this]{
+    if(workspaceFocused_||restoringSplitterState_||!splitterStateRestored_)return;
+    const auto sizes=mainSplitter_->sizes();
+    if(sizes.size()!=3||std::any_of(sizes.begin(),sizes.end(),[](int value){return value<=0;}))return;
+    windowSettings().setValue(QStringLiteral("mainSplitterState"),mainSplitter_->saveState());
+  });
   auto* workspaceScroll=new QScrollArea(this);workspaceScroll->setObjectName("workspaceScroll");workspaceScroll->setWidgetResizable(true);workspaceScroll->setFrameShape(QFrame::NoFrame);workspaceScroll->setWidget(splitter);setCentralWidget(workspaceScroll);createQuickToolbar();
   previewTimer_=new QTimer(this);previewTimer_->setSingleShot(true);previewTimer_->setInterval(220);connect(previewTimer_,&QTimer::timeout,this,&MainWindow::refreshDocumentModel);connectPreviewInputs();
   auto settings=windowSettings();baseDirectory_->setText(settings.value(QStringLiteral("baseDirectory")).toString());restoreGeometry(settings.value(QStringLiteral("geometry")).toByteArray());
@@ -160,7 +166,18 @@ MainWindow::~MainWindow(){if(importWatcher_)importWatcher_->cancel();auto settin
 
 void MainWindow::showEvent(QShowEvent* event){
   QMainWindow::showEvent(event);
-  QTimer::singleShot(0,this,[this]{fitWindowToScreen(this);});
+  QTimer::singleShot(0,this,[this]{
+    fitWindowToScreen(this);
+    if(splitterStateRestored_||!mainSplitter_)return;
+    splitterStateRestored_=true;
+    const auto bytes=windowSettings().value(QStringLiteral("mainSplitterState")).toByteArray();
+    restoringSplitterState_=true;
+    if(bytes.isEmpty()||!mainSplitter_->restoreState(bytes)||
+       mainSplitter_->sizes().size()!=3||
+       std::any_of(mainSplitter_->sizes().begin(),mainSplitter_->sizes().end(),[](int value){return value<=0;}))
+      mainSplitter_->setSizes({210,635,635});
+    restoringSplitterState_=false;
+  });
 }
 
 QWidget* MainWindow::createInputPanel(){
@@ -265,6 +282,7 @@ QWidget* MainWindow::createWorkspace(){
   connect(previewScope_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{refreshScopedPreview();});
   connect(focus,&QToolButton::toggled,this,[this,focus](bool active){
     if(!mainSplitter_)return;
+    workspaceFocused_=active;
     if(active){workspaceSplitState_=mainSplitter_->saveState();mainSplitter_->setSizes({0,0,std::max(1,mainSplitter_->width())});focus->setText(tr("기본 화면"));}
     else{if(!workspaceSplitState_.isEmpty())mainSplitter_->restoreState(workspaceSplitState_);focus->setText(tr("⛶ 크게 보기"));}
   });
