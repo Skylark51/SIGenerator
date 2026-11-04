@@ -361,7 +361,7 @@ void MainWindow::linkSinglePoint(){
   if(!valid){
     QMessageBox::warning(this,tr("SPE 연결 실패"),tr("원자 수·원소 순서·전하 또는 multiplicity가 일치하지 않습니다."));return;
   }
-  const QString details=tr("파일: %1\\nMethod: %2\\nBasis: %3\\nCharge: %4\\nMultiplicity: %5\\nSCF energy: %6 Hartree\\n\\n선택 구조와 연결하시겠습니까?")
+  const QString details=tr("파일: %1\nMethod: %2\nBasis: %3\nCharge: %4\nMultiplicity: %5\nSCF energy: %6 Hartree\n\n선택 구조와 연결하시겠습니까?")
     .arg(QFileInfo(selection).fileName(),QString::fromStdString(candidate.method),QString::fromStdString(candidate.basis))
     .arg(candidate.charge?QString::number(*candidate.charge):QStringLiteral("N/A"))
     .arg(candidate.multiplicity?QString::number(*candidate.multiplicity):QStringLiteral("N/A"))
@@ -1036,7 +1036,7 @@ void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabel
     }else{
       status_->setText(tr("생성 결과 · DOCX: %1 · XYZ: %2").arg(result.docx?tr("성공"):tr("실패"),result.xyz?tr("성공"):tr("실패")));
       QMessageBox::warning(this,tr("SI + XYZ 생성 결과"),
-        tr("DOCX: %1\\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
+        tr("DOCX: %1\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
     }
   });
   watcher->setFuture(QtConcurrent::run([path,xyz,model]{
