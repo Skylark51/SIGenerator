@@ -86,7 +86,7 @@ void ProjectManagerDialog::applyTheme(int index){
     QLabel {color:#34465b;font-size:10pt;}
     QLabel#managerBrand {color:%1;font-size:10pt;font-weight:700;letter-spacing:2px;}
     QLabel#managerTitle {color:#24374c;font-size:19pt;font-weight:700;}
-    QLabel#managerIntro {color:#63768b;font-size:10pt;}
+    QLabel#managerIntro {color:#52647a;font-size:10pt;}
     QLabel#recentProjectsHeading {color:%1;font-size:13pt;font-weight:700;border-left:4px solid %1;padding:3px 10px;}
     QLabel#newProjectHeading {color:%1;font-size:14pt;font-weight:600;padding:5px 0;}
     QListWidget {background:transparent;border:0;outline:0;}
