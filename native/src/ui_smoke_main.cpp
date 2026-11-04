@@ -1322,6 +1322,42 @@ int main(int argc,char** argv){
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
+
+  {
+    auto* splitter=window.findChild<QSplitter*>("mainSplitter");
+    auto* focus=window.findChild<QToolButton*>("focusWorkspace");
+    for(const QSize resolution:{QSize(1050,720),QSize(1480,900),QSize(1920,1080)}){
+      window.resize(resolution);QCoreApplication::processEvents();
+      const auto sizes=splitter->sizes();
+      ok&=check(sizes.size()==3&&std::all_of(sizes.cbegin(),sizes.cend(),[](int value){return value>0;}),
+        "splitter keeps all three panels reachable at requested window sizes");
+    }
+    window.resize(1480,900);QCoreApplication::processEvents();
+    splitter->moveSplitter(260,1);QCoreApplication::processEvents();
+    QSettings prefs("SI Generator","SIGeneratorTests");
+    const auto saved=prefs.value("mainSplitterState").toByteArray();
+    const auto before=splitter->sizes();
+    ok&=check(!saved.isEmpty(),"splitter move persists its geometry");
+    if(focus){
+      focus->setChecked(true);QCoreApplication::processEvents();
+      ok&=check(prefs.value("mainSplitterState").toByteArray()==saved,"focus mode cannot overwrite persisted split state");
+      focus->setChecked(false);QCoreApplication::processEvents();
+      const auto restored=splitter->sizes();
+      ok&=check(restored.size()==3&&std::abs(restored[0]-before[0])<=10,"focus exit restores previous splitter layout");
+    }
+    {
+      MainWindow reopened;reopened.show();QCoreApplication::processEvents();
+      auto* restoredSplitter=reopened.findChild<QSplitter*>("mainSplitter");
+      const auto sizes=restoredSplitter->sizes();
+      const auto ratio=[&](const QList<int>& values){
+        const int total=values[0]+values[1]+values[2];
+        return total?static_cast<double>(values[0])/total:0.0;
+      };
+      ok&=check(sizes.size()==3&&std::abs(ratio(sizes)-ratio(before))<0.08,
+        "saved splitter proportions survive editor reopening");
+    }
+    window.resize(1480,900);
+  }
   auto* mime=new QMimeData;mime->setUrls({QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1]))});QDragEnterEvent enter(QPoint(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&enter);QDropEvent drop(QPointF(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&drop);ok&=check(waitUntil([table]{return table&&table->rowCount()==1;})&&Phase1Smoke::waitForImport(window),"Gaussian drop and parse");
   if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){
     const auto dir=qEnvironmentVariable("SI_NAV_SAMPLE_DIR");QDir().mkpath(dir);QTest::qWait(300);window.grab().save(dir+"/structures.png");
