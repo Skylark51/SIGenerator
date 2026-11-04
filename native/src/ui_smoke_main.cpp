@@ -408,6 +408,14 @@ struct Phase1Smoke {
     cards->itemWidget(cards->item(0))->findChild<QToolButton*>("favoriteProject")->click();library.findChild<QToolButton*>("projectTheme2")->click();
     ProjectManagerDialog restored;auto* restoredCards=restored.findChild<QListWidget*>("recentProjectsList");
     ok&=check(restoredCards->item(0)->data(Qt::UserRole).toString()==pinnedPath&&restoredCards->itemWidget(restoredCards->item(0))->findChild<QToolButton*>("favoriteProject")->isChecked()&&restored.findChild<QToolButton*>("projectTheme2")->isChecked(),"pin heart and theme persist across project managers");
+    ok&=check(QApplication::styleSheet().contains("#f8f4fc"),"project theme also applies to editor application stylesheet");
+    auto* search=restored.findChild<QLineEdit*>("projectSearch");
+    auto* favoritesOnly=restored.findChild<QCheckBox*>("favoriteProjectsOnly");
+    search->setText("Library 15");
+    ok&=check(restoredCards->count()==1&&restoredCards->item(0)->text()=="Library 15","project name search filters paged library");
+    search->clear();favoritesOnly->setChecked(true);
+    ok&=check(restoredCards->count()==1&&restoredCards->item(0)->data(Qt::UserRole).toString()==pinnedPath,"favorites-only filter finds starred project");
+    favoritesOnly->setChecked(false);
     if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){restored.show();QCoreApplication::processEvents();restored.grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/project-manager-lavender.png");}
     restoredCards->itemWidget(restoredCards->item(0))->findChild<QToolButton*>("pinProject")->click();ok&=check(restoredCards->item(0)->data(Qt::UserRole).toString()==firstPath,"unpin restores recent project order");
     for(int i=0;i<(librarySize+2)/3;++i)next->click();ok&=check(!next->isEnabled()&&cards->count()==(librarySize-1)%3+1,"last project page disables next button");
@@ -798,6 +806,15 @@ struct Phase1Smoke {
       ok&=check(table.rows.size()==labels.size(),"reaction table contains exactly the pasted structures");
       for(int i=0;i<table.rows.size();++i)ok&=check(table.rows[i][0]==labels[i],"energy and spin rows retain every pasted reaction label");
     }
+    QStringList selectedAtomIds;
+    for(int i=0;i<window.files_->rowCount();++i)selectedAtomIds.append(i%2?"2":"1");
+    window.spinIndices_->setPlainText(selectedAtomIds.join("\n"));window.refreshDocumentModel();
+    const auto* mappedSpin=window.documentModel_.table(si::DocumentSection::SpinDensity);
+    ok&=check(mappedSpin&&mappedSpin->headers.value(1)=="Selected atom 1"&&mappedSpin->rows[1][1].contains("(2):"),
+      "structure-specific Mulliken atom IDs appear in cells under neutral headers");
+    window.spinIndices_->setPlainText("100");
+    ok&=check(window.preflightErrors().join("\n").contains("ID 100"),"out-of-range spin atom ID produces preflight error");
+    window.spinIndices_->clear();window.refreshDocumentModel();
     ProjectState state;state.files=window.sourcePaths();state.structureNames=window.structureLabels().join('\n');QString error;
     ok&=check(ProjectStore::save(folder.filePath("numbered-labels.json"),state,&error),"save numbered reaction labels");
     ProjectState loaded;ok&=check(ProjectStore::load(folder.filePath("numbered-labels.json"),&loaded,&error)&&loaded.structureNames==labels.join('\n')&&loaded.files==paths,"numbered reaction labels and order survive project serialization");
@@ -814,7 +831,7 @@ struct Phase1Smoke {
     const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);window.xyzOutputPath_->setText(folder.filePath("export-synced-labels.xyz"));
     chooseSiRendering(&window,QMessageBox::NoRole);
     window.findChild<QToolButton*>("generateSiButton")->click();
-    ok&=check(waitUntil([&]{return QFile::exists(output)&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
+    ok&=check(waitUntil([&]{return QFile::exists(output)&&QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
     ok&=check(window.parsed_.value(paths[5])==originalData&&!window.parsing_,"export name synchronization reuses parsed structures and their spin sources");
     QFile generated(output);
     if(generated.open(QIODevice::ReadOnly)){
@@ -1107,7 +1124,7 @@ struct Phase1Smoke {
     window.siOutputPath_->setText(folder.filePath("SI.docx"));window.xyzOutputPath_->setText(folder.filePath("SI.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
     window.exportSiDocument();
-    ok&=check(waitUntil([&]{return window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
+    ok&=check(waitUntil([&]{return QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
     ok&=check(!window.documentModel_.figures.isEmpty(),"rendering opt in retains molecular figures");
     window.captions_->setPlainText("Previously prepared Figure caption");window.refreshDocumentModel();
     window.siOutputPath_->setText(folder.filePath("tables-only.docx"));
@@ -1220,6 +1237,7 @@ bool figureWorkflowSmoke(){
   FigureSetupDialog dialog(structures,paths,{});dialog.show();QTest::qWait(100);
   auto visibleViews=[&]{QVector<MoleculeViewWidget*> result;for(auto* view:dialog.findChildren<MoleculeViewWidget*>())if(view->isVisible())result.append(view);return result;};
   auto views=visibleViews();ok&=check(views.size()==3,"first Figure group has three molecules");
+  ok&=check(!dialog.findChild<QPushButton*>("addFigurePanel")->isEnabled(),"three-molecule figure row disables add button");
   auto state=views[1]->cameraState();state.insert("yaw",48.0);views[1]->setCameraState(state);
   ok&=check(views[0]->cameraState()==state&&views[2]->cameraState()==state,"TS camera is shared with endpoints");
   dialog.findChild<QCheckBox*>("linkFigureCameras")->setChecked(false);
@@ -1277,6 +1295,13 @@ bool figureWorkflowSmoke(){
   const auto customSettings=customized.settings();
   ok&=check(customSettings.value("rows").toArray().size()==4&&customSettings.value("rows").toArray().last().toArray().size()==2,
     "custom row composition is serialized for project persistence");
+  QJsonArray originalSources;for(const auto& path:paths)originalSources.append(path);
+  QJsonObject fourPanelSettings{{"sources",originalSources},{"rows_version",1},
+    {"rows",QJsonArray{QJsonArray{paths[0],paths[1],paths[2],paths[3]},QJsonArray{paths[4],paths[5]}}}};
+  FigureSetupDialog migratedFigure(structures,paths,fourPanelSettings);
+  const auto migratedRows=migratedFigure.settings().value("rows").toArray();
+  ok&=check(migratedRows.size()==3&&migratedRows[0].toArray().size()==3&&migratedRows[1].toArray().size()==1&&migratedRows[2].toArray().size()==2,
+    "older four-molecule figure rows are migrated without losing structures");
   FigureSetupDialog restoredFigure(structures,paths,customSettings);
   ok&=check(restoredFigure.settings().value("rows")==customSettings.value("rows"),
     "custom Figure rows are restored with their source identities");
