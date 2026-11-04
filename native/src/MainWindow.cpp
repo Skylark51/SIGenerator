@@ -146,6 +146,12 @@ MainWindow::MainWindow(){
   setObjectName(QStringLiteral("mainWindow"));setAcceptDrops(true);setWindowTitle(tr("SI Generator — 네이티브 (Native)"));resize(1480,900);
   auto* fileMenu=menuBar()->addMenu(tr("파일 (File)"));fileMenu->addAction(tr("Gaussian 파일 열기 (Open Files)…"),QKeySequence::Open,this,&MainWindow::chooseFiles);fileMenu->addAction(tr("고급 · 단계 일괄 구성…"),this,&MainWindow::editReactionStages);fileMenu->addAction(tr("프로젝트 관리…"),this,&MainWindow::projectManagerRequested);fileMenu->addAction(tr("프로젝트 열기 (Open Project)…"),this,&MainWindow::openProject);fileMenu->addAction(tr("프로젝트 저장 (Save Project)…"),QKeySequence::Save,this,&MainWindow::saveProject);
   auto* splitter=new QSplitter(Qt::Horizontal,this);mainSplitter_=splitter;splitter->setObjectName(QStringLiteral("mainSplitter"));splitter->addWidget(createStageNavigation());splitter->addWidget(createInputPanel());splitter->addWidget(createWorkspace());splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setStretchFactor(2,1);splitter->setSizes({210,635,635});
+  connect(splitter,&QSplitter::splitterMoved,this,[this]{
+    if(workspaceFocused_||restoringSplitterState_||!splitterStateRestored_)return;
+    const auto sizes=mainSplitter_->sizes();
+    if(sizes.size()!=3||std::any_of(sizes.begin(),sizes.end(),[](int value){return value<=0;}))return;
+    windowSettings().setValue(QStringLiteral("mainSplitterState"),mainSplitter_->saveState());
+  });
   auto* workspaceScroll=new QScrollArea(this);workspaceScroll->setObjectName("workspaceScroll");workspaceScroll->setWidgetResizable(true);workspaceScroll->setFrameShape(QFrame::NoFrame);workspaceScroll->setWidget(splitter);setCentralWidget(workspaceScroll);createQuickToolbar();
   previewTimer_=new QTimer(this);previewTimer_->setSingleShot(true);previewTimer_->setInterval(220);connect(previewTimer_,&QTimer::timeout,this,&MainWindow::refreshDocumentModel);connectPreviewInputs();
   auto settings=windowSettings();baseDirectory_->setText(settings.value(QStringLiteral("baseDirectory")).toString());restoreGeometry(settings.value(QStringLiteral("geometry")).toByteArray());
@@ -160,7 +166,18 @@ MainWindow::~MainWindow(){if(importWatcher_)importWatcher_->cancel();auto settin
 
 void MainWindow::showEvent(QShowEvent* event){
   QMainWindow::showEvent(event);
-  QTimer::singleShot(0,this,[this]{fitWindowToScreen(this);});
+  QTimer::singleShot(0,this,[this]{
+    fitWindowToScreen(this);
+    if(splitterStateRestored_||!mainSplitter_)return;
+    splitterStateRestored_=true;
+    const auto bytes=windowSettings().value(QStringLiteral("mainSplitterState")).toByteArray();
+    restoringSplitterState_=true;
+    if(bytes.isEmpty()||!mainSplitter_->restoreState(bytes)||
+       mainSplitter_->sizes().size()!=3||
+       ([](const QList<int>& sizes){return std::any_of(sizes.cbegin(),sizes.cend(),[](int value){return value<=0;});})(mainSplitter_->sizes()))
+      mainSplitter_->setSizes({210,635,635});
+    restoringSplitterState_=false;
+  });
 }
 
 QWidget* MainWindow::createInputPanel(){
@@ -265,6 +282,7 @@ QWidget* MainWindow::createWorkspace(){
   connect(previewScope_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{refreshScopedPreview();});
   connect(focus,&QToolButton::toggled,this,[this,focus](bool active){
     if(!mainSplitter_)return;
+    workspaceFocused_=active;
     if(active){workspaceSplitState_=mainSplitter_->saveState();mainSplitter_->setSizes({0,0,std::max(1,mainSplitter_->width())});focus->setText(tr("기본 화면"));}
     else{if(!workspaceSplitState_.isEmpty())mainSplitter_->restoreState(workspaceSplitState_);focus->setText(tr("⛶ 크게 보기"));}
   });
@@ -308,9 +326,7 @@ QWidget* MainWindow::createQuickToolbar(){
   add("prepareFiguresAction",tr("분자 Figure 뷰 설정"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});
   bar->addSeparator();bar->addWidget(new QLabel(tr("내보내기  "),bar));
   auto* generateSi=add("generateSiButton",tr("전체 SI DOCX 생성"),navigationIcon("si",QColor("#087e8b")),[this]{exportSiDocument();});
-  generateSi->setText(tr("SI 생성"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(110);
-  add("generateCoordinatesButton",tr("전체 구조 좌표 DOCX 생성"),navigationIcon("coordinates",QColor("#087e8b")),[this]{exportCoordinatesDocument();});
-  add("generateXyzButton",tr("전체 구조 XYZ 파일 생성"),navigationIcon("xyz",QColor("#087e8b")),[this]{exportXyzDocument();});
+  generateSi->setText(tr("Generate SI + XYZ"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(185);
   auto* currentSection=new QLabel(labels[0],bar);currentSection->setObjectName("currentSectionLabel");bar->addWidget(currentSection);
   connect(inputPages_,&QStackedWidget::currentChanged,this,[this,currentSection,labels](int index){inputScroll_=qobject_cast<QScrollArea*>(inputPages_->widget(index));navigation_->button(index)->setChecked(true);currentSection->setText(labels[index]);});
   return bar;
@@ -325,6 +341,55 @@ void MainWindow::dropEvent(QDropEvent* event){
   }
   acceptPaths(paths);
   event->acceptProposedAction();
+}
+void MainWindow::linkSinglePoint(){
+  if(parsing_||files_->currentRow()<0)return;
+  const QString source=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();
+  const QString selection=QFileDialog::getOpenFileName(this,tr("Single-point Gaussian Output"),QFileInfo(source).absolutePath(),tr("Gaussian Files (*.out *.log)"));
+  if(selection.isEmpty())return;
+  si::GaussianParser parser;
+  const auto primary=parser.parse(std::filesystem::path(source.toStdWString()),false);
+  const auto candidate=parser.parse(std::filesystem::path(selection.toStdWString()),false);
+  if(!primary.success||!candidate.success||!candidate.scfEnergy||primary.finalGeometry.empty()||candidate.finalGeometry.empty()){
+    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("두 파일 모두 Gaussian 최종 구조가 필요하며 SPE에는 SCF 에너지가 있어야 합니다."));return;
+  }
+  bool valid=primary.finalGeometry.size()==candidate.finalGeometry.size();
+  if(valid)for(size_t i=0;i<primary.finalGeometry.size();++i)
+    if(primary.finalGeometry[i].atomicNumber!=candidate.finalGeometry[i].atomicNumber){valid=false;break;}
+  if(primary.charge&&candidate.charge&&primary.charge!=candidate.charge)valid=false;
+  if(primary.multiplicity&&candidate.multiplicity&&primary.multiplicity!=candidate.multiplicity)valid=false;
+  if(!valid){
+    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("원자 수·원소 순서·전하 또는 multiplicity가 일치하지 않습니다."));return;
+  }
+  const QString details=tr("파일: %1\nMethod: %2\nBasis: %3\nCharge: %4\nMultiplicity: %5\nSCF energy: %6 Hartree\n\n선택 구조와 연결하시겠습니까?")
+    .arg(QFileInfo(selection).fileName(),QString::fromStdString(candidate.method),QString::fromStdString(candidate.basis))
+    .arg(candidate.charge?QString::number(*candidate.charge):QStringLiteral("N/A"))
+    .arg(candidate.multiplicity?QString::number(*candidate.multiplicity):QStringLiteral("N/A"))
+    .arg(*candidate.scfEnergy,0,'f',9);
+  if(QMessageBox::question(this,tr("SPE 연결 확인"),details)!=QMessageBox::Yes)return;
+  auto combined=std::make_shared<si::GaussianResult>(primary);
+  if(!candidate.spinDensities.empty()){
+    combined->spinDensities=candidate.spinDensities;
+    combined->spinBasisLevel=candidate.basisLevel;
+    combined->spinSourcePath=std::filesystem::path(selection.toStdWString());
+    combined->spinFallback=false;
+  }
+  const QString absolute=QFileInfo(selection).absoluteFilePath();
+  manualPairedPaths_.insert(source,absolute);pairedPaths_.insert(source,absolute);
+  parsed_.insert(source,combined);parsed_.insert(absolute,std::make_shared<si::GaussianResult>(candidate));
+  selectStructure();refreshDocumentModel();
+  status_->setText(tr("SPE 수동 연결됨: %1").arg(absolute));
+}
+void MainWindow::unlinkSinglePoint(){
+  if(parsing_||files_->currentRow()<0)return;
+  const QString source=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();
+  manualPairedPaths_.remove(source);
+  const QString automatic=pairedSinglePointPath(source);
+  if(automatic.isEmpty())pairedPaths_.remove(source);else pairedPaths_.insert(source,automatic);
+  try{parsed_.insert(source,cache_->get(std::filesystem::path(source.toStdWString())));}
+  catch(const std::exception&){/* Offline project: retain the saved primary snapshot. */}
+  selectStructure();refreshDocumentModel();
+  status_->setText(tr("수동 SPE 연결 해제 · 자동 매칭 복구"));
 }
 void MainWindow::chooseFiles(){
   const auto selected=QFileDialog::getOpenFileNames(this,tr("Gaussian 출력 선택 (Select Gaussian Output)"),baseDirectory_->text(),tr("Gaussian Files (*.out *.log);;All Files (*.*)"),nullptr,QFileDialog::DontUseNativeDialog);
@@ -381,6 +446,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   // A project replacement invalidates every callback from the previous import.
   // Workers own their cache and never access the window after it is destroyed.
   if(!append){
+    if(!restoringProject)manualPairedPaths_.clear();
     manualLabelsEdited_=false;namedImportLabels_.clear();
     ++importGeneration_;
     if(importWatcher_)importWatcher_->cancel();
@@ -495,7 +561,17 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
       try{
         item.pairPath=restoredPairedPaths.value(path).toString();
         if(item.pairPath.isEmpty())item.pairPath=pairedSinglePointPath(path);
-        if(!item.pairPath.isEmpty())item.pair=parse(item.pairPath);
+        if(!item.pairPath.isEmpty()){
+           item.pair=parse(item.pairPath);
+           if(item.pair&&item.pair->success&&!item.pair->spinDensities.empty()&&item.data){
+             auto combined=std::make_shared<si::GaussianResult>(*item.data);
+             combined->spinDensities=item.pair->spinDensities;
+             combined->spinBasisLevel=item.pair->basisLevel;
+             combined->spinSourcePath=std::filesystem::path(item.pairPath.toStdWString());
+             combined->spinFallback=false;
+             item.data=combined;
+           }
+         }
       }
       catch(const std::exception&){/* Primary parse already reports filesystem failures. */}
       if(promise.isCanceled())return;
@@ -625,6 +701,16 @@ QStringList MainWindow::preflightErrors() const{
       seen.insert(id);
     }
     if(spinGroups[row].size()!=spinGroups.front().size())errors.append(tr("스핀 원자 ID: 모든 행의 원자 수가 같아야 합니다."));
+  }
+  for(int recordIndex=0;recordIndex<files_->rowCount()&&!spinGroups.isEmpty();++recordIndex){
+    if(spinGroups.size()>1&&spinGroups.size()!=files_->rowCount())break;
+    const auto path=files_->item(recordIndex,0)->data(Qt::UserRole).toString();
+    const auto parsed=parsed_.value(path);
+    if(!parsed)continue;
+    const auto& selected=spinGroups.size()==1?spinGroups.front():spinGroups[recordIndex];
+    for(const int atomId:selected)if(atomId<=0||static_cast<size_t>(atomId)>parsed->finalGeometry.size()){
+      errors.append(tr("구조 '%1': 존재하지 않는 스핀 원자 ID %2").arg(files_->item(recordIndex,0)->text()).arg(atomId));
+    }
   }
   return errors;
 }
@@ -769,13 +855,15 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       for(size_t i=0;i<std::min<size_t>(6,ranked.size());++i)ids.append(ranked[i].first);
     }else ids=groups.front();
     const bool completeSpinMapping=groups.isEmpty()||groups.size()==1||groups.size()==static_cast<int>(records.size());
+    const bool perStructureIds=groups.size()==static_cast<int>(records.size())&&groups.size()>1&&
+      std::any_of(groups.cbegin()+1,groups.cend(),[&](const QVector<int>& group){return group!=groups.front();});
     if(!ids.isEmpty()&&completeSpinMapping){
       bool allTz=true;for(const auto& record:records)allTz=allTz&&record.frequency.spinBasisLevel=="TZVPP";
       QString caption=tr("Mulliken Spin Density Distributions of %1.").arg(si::displayMechanism(model));
       if(allTz)caption+=tr(" Calculated at the Def2-TZVPP level.");
       si::DocumentTable table{si::DocumentSection::SpinDensity,caption,{QString()},{},{}};
       int width=ids.size();for(const auto& group:groups)width=std::max(width,static_cast<int>(group.size()));
-      for(int col=0;col<width;++col)table.headers.append(col<ids.size()?atomLabel(records.front().frequency,ids[col],spinAtomNumbers_->isChecked()):tr("Atom %1").arg(col+1));
+      for(int col=0;col<width;++col)table.headers.append(perStructureIds?tr("Selected atom %1").arg(col+1):(col<ids.size()?atomLabel(records.front().frequency,ids[col],spinAtomNumbers_->isChecked()):tr("Atom %1").arg(col+1)));
       table.headers.append(QStringLiteral("Rest"));table.headers.append(QStringLiteral("Sum"));
       const auto names=lines(spinNames_->toPlainText());
       for(size_t index=0;index<records.size();++index){
@@ -788,7 +876,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
         for(const int id:current){
           std::optional<double> value;
           for(const auto& spin:record.frequency.spinDensities)if(spin.atomIndex==id){value=spin.spin;break;}
-          row.append(number(value,3,precision));
+          row.append(perStructureIds?(atomLabel(record.frequency,id,true)+QStringLiteral(": ")+number(value,3,precision)):number(value,3,precision));
         }
         while(row.size()<table.headers.size()-2)row.append(QStringLiteral("N/A"));
         row.append(record.frequency.spinDensities.empty()?QStringLiteral("N/A"):si::formatNumber(rest,3,precision));
@@ -849,6 +937,7 @@ bool MainWindow::saveProjectToPath(const QString& path){
       }
     }
   }
+  for(auto it=manualPairedPaths_.cbegin();it!=manualPairedPaths_.cend();++it)state.manualPairedPaths.insert(it.key(),it.value());
   QString error;if(!ProjectStore::save(path,state,&error)){QMessageBox::critical(this,tr("저장 실패 (Save Failed)"),error);return false;}currentProjectPath_=path;ProjectManagerDialog::rememberProject(path);status_->setText(tr("프로젝트 저장됨: %1").arg(path));return true;}
 void MainWindow::openProject(){
   const auto path=QFileDialog::getOpenFileName(this,tr("SI 프로젝트 열기 (Open Project)"),baseDirectory_->text(),tr("SI Project (*.si_project.json *.json)"));if(path.isEmpty())return;
@@ -858,7 +947,9 @@ bool MainWindow::loadProjectPath(const QString& path){
   ProjectState state;QString error;if(!ProjectStore::load(path,&state,&error)){QMessageBox::critical(this,tr("열기 실패 (Open Failed)"),error);return false;}
   if(!currentProjectPath_.isEmpty()&&!saveActiveProject())return false;
   pendingStructureLabels_=lines(state.structureNames);pendingLabelsByPath_.clear();for(int i=0;i<state.files.size();++i)pendingLabelsByPath_.insert(QFileInfo(state.files[i]).absoluteFilePath(),pendingStructureLabels_.value(i,QFileInfo(state.files[i]).completeBaseName()));
-  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(0);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
+  referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;
+  manualPairedPaths_.clear();
+  for(auto it=state.manualPairedPaths.constBegin();it!=state.manualPairedPaths.constEnd();++it)manualPairedPaths_.insert(it.key(),it.value().toString());preparedFigures_.clear();preparedStageFigures_.clear();includeAbsolute_->setChecked(state.includeAbsolute);decimalPlaces_->setValue(0);includeDispersion_->setChecked(state.includeDispersion);includeComplexation_->setChecked(state.includeComplexation);const QDir projectDirectory(QFileInfo(path).absolutePath());
   baseDirectory_->setText(QDir(state.baseDirectory).exists()?state.baseDirectory:projectDirectory.absolutePath());
   auto relocatedOutput=[&](const QString& previous,const QString& fallback){
     if(previous.trimmed().isEmpty())return projectDirectory.filePath(fallback);
@@ -873,9 +964,9 @@ bool MainWindow::loadProjectPath(const QString& path){
   activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,state.pairedSnapshotPaths);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));return true;
 }
 
-bool MainWindow::prepareFigures(){
-  if(!validateExport())return false;
-  if(activeStage_<0&&!reactionStages_.isEmpty()){const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){if(reactionStages_[i].toObject()["files"].toArray().isEmpty())continue;activeStage_=i;if(!prepareFigures()){activeStage_=previous;refreshStageWorkspace();return false;}}activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return true;}
+bool MainWindow::prepareFigures(bool preflightDone){
+  if(!preflightDone&&!validateExport())return false;
+  if(activeStage_<0&&!reactionStages_.isEmpty()){const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){if(reactionStages_[i].toObject()["files"].toArray().isEmpty())continue;activeStage_=i;if(!prepareFigures(true)){activeStage_=previous;refreshStageWorkspace();return false;}}activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return true;}
   if(documentModel_.coordinates.isEmpty()){QMessageBox::information(this,tr("분자 없음"),tr("먼저 Gaussian 구조를 추가하세요."));return false;}
   for(const auto& block:documentModel_.coordinates)if(block.atoms.empty()){QMessageBox::warning(this,tr("좌표 없음"),block.structureName+tr(": 렌더링할 좌표가 없습니다."));return false;}
   const bool selectedStage=activeStage_>=0&&activeStage_<reactionStages_.size();
@@ -905,7 +996,7 @@ void MainWindow::applyNamedLabelsForExport(){
   syncReferenceOptions();
   if(auto* item=files_->item(files_->currentRow(),0))structureLabel_->setText(item->text());
 }
-void MainWindow::exportSiDocument(){applyNamedLabelsForExport();if(!validateExport())return;
+void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabelsForExport();if(!validateExport())return;
   if(documentModel_.empty()){QMessageBox::warning(this,tr("입력 없음 (No Input)"),tr("먼저 Gaussian 파일이나 수동 표를 추가하세요."));return;}
   QMessageBox rendering(QMessageBox::Question,tr("SI Figure 렌더링"),
     tr("SI에 분자 Figure를 렌더링하여 포함하시겠습니까?\n표만 생성하면 Figure와 Figure 캡션을 제외합니다."),QMessageBox::NoButton,this);
@@ -917,12 +1008,44 @@ void MainWindow::exportSiDocument(){applyNamedLabelsForExport();if(!validateExpo
   if(rendering.clickedButton()!=includeFigures&&rendering.clickedButton()!=tablesOnly)return;
   const bool renderFigures=rendering.clickedButton()==includeFigures;
   if(renderFigures&&!documentModel_.coordinates.isEmpty()){
-    if(reactionStages_.isEmpty()){if(!prepareFigures())return;}
-    else {const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){const auto stage=reactionStages_[i].toObject();if(stage["files"].toArray().isEmpty())continue;const auto id=stage.value("id").toString(stage["name"].toString());if(preparedStageFigures_.contains(id))continue;activeStage_=i;if(!prepareFigures()){activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return;}}activeStage_=previous;refreshStageWorkspace();refreshDocumentModel();}
+    if(reactionStages_.isEmpty()){if(!prepareFigures(true))return;}
+    else {const int previous=activeStage_;for(int i=0;i<reactionStages_.size();++i){const auto stage=reactionStages_[i].toObject();if(stage["files"].toArray().isEmpty())continue;const auto id=stage.value("id").toString(stage["name"].toString());if(preparedStageFigures_.contains(id))continue;activeStage_=i;if(!prepareFigures(true)){activeStage_=previous;refreshStageWorkspace();refreshScopedPreview();return;}}activeStage_=previous;refreshStageWorkspace();refreshDocumentModel();}
   }
   auto model=documentModel_;
   if(!renderFigures){model.figures.clear();model.figureCaptions.clear();}
-  QString path=siOutputPath_->text().trimmed();if(path.isEmpty())path=QFileDialog::getSaveFileName(this,tr("SI 문서 생성 (Generate SI)"),baseDirectory_->text()+QStringLiteral("/SI.docx"),tr("Word Document (*.docx)"));if(path.isEmpty())return;if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");siOutputPath_->setText(path);status_->setText(tr("SI DOCX 생성 중…"));auto* watcher=new QFutureWatcher<QString>(this);connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,path]{const auto error=watcher->result();watcher->deleteLater();if(error.isEmpty())status_->setText(tr("SI 문서 생성 완료: %1").arg(path));else QMessageBox::critical(this,tr("문서 오류 (Document Error)"),error);});watcher->setFuture(QtConcurrent::run([path,model]{QString error;DocxWriter::writeDocument(path,model,&error);return error;}));}
+  QString path=siOutputPath_->text().trimmed();
+  if(path.isEmpty())path=QFileDialog::getSaveFileName(this,tr("SI 문서 생성 (Generate SI)"),baseDirectory_->text()+QStringLiteral("/SI.docx"),tr("Word Document (*.docx)"));
+  if(path.isEmpty())return;
+  if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");
+  QString xyz=xyzOutputPath_->text().trimmed();
+  if(xyz.isEmpty())xyz=QFileDialog::getSaveFileName(this,tr("XYZ 출력 경로"),QFileInfo(path).absoluteDir().filePath("Structures.xyz"),tr("XYZ coordinates (*.xyz)"));
+  if(xyz.isEmpty())return;
+  if(!xyz.endsWith(QStringLiteral(".xyz"),Qt::CaseInsensitive))xyz+=QStringLiteral(".xyz");
+  siOutputPath_->setText(path);xyzOutputPath_->setText(xyz);
+  generationRunning_=true;
+  if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(false);
+  status_->setText(tr("SI DOCX + XYZ 생성 중…"));
+  struct GenerationResult {bool docx{},xyz{};QString docxError,xyzError;};
+  auto* watcher=new QFutureWatcher<GenerationResult>(this);
+  connect(watcher,&QFutureWatcher<GenerationResult>::finished,this,[this,watcher,path,xyz]{
+    const auto result=watcher->result();
+    watcher->deleteLater();generationRunning_=false;
+    if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(true);
+    if(result.docx&&result.xyz){
+      status_->setText(tr("SI 문서 생성 완료: %1 · XYZ 생성 완료: %2").arg(path,xyz));
+    }else{
+      status_->setText(tr("생성 결과 · DOCX: %1 · XYZ: %2").arg(result.docx?tr("성공"):tr("실패"),result.xyz?tr("성공"):tr("실패")));
+      QMessageBox::warning(this,tr("SI + XYZ 생성 결과"),
+        tr("DOCX: %1\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
+    }
+  });
+  watcher->setFuture(QtConcurrent::run([path,xyz,model]{
+    GenerationResult result;
+    result.docx=DocxWriter::writeDocument(path,model,&result.docxError);
+    result.xyz=si::XyzWriter::write(xyz,model,&result.xyzError);
+    return result;
+  }));
+}
 void MainWindow::exportCoordinatesDocument(){if(!validateExport())return;if(documentModel_.coordinates.isEmpty()){QMessageBox::warning(this,tr("좌표 없음 (No Coordinates)"),tr("최종 Gaussian geometry가 없습니다."));return;}QString path=QFileDialog::getSaveFileName(this,tr("Generate Coordinates DOCX"),baseDirectory_->text()+QStringLiteral("/Coordinates.docx"),tr("Word Document (*.docx)"));if(path.isEmpty())return;if(!path.endsWith(QStringLiteral(".docx"),Qt::CaseInsensitive))path+=QStringLiteral(".docx");const auto model=documentModel_;status_->setText(tr("Cartesian DOCX 생성 중…"));auto* watcher=new QFutureWatcher<QString>(this);connect(watcher,&QFutureWatcher<QString>::finished,this,[this,watcher,path]{const auto error=watcher->result();watcher->deleteLater();if(error.isEmpty())status_->setText(tr("Cartesian 문서 생성 완료: %1").arg(path));else QMessageBox::critical(this,tr("문서 오류 (Document Error)"),error);});watcher->setFuture(QtConcurrent::run([path,model]{QString error;DocxWriter::writeCoordinates(path,model,&error);return error;}));}
 
 void MainWindow::exportXyzDocument(){

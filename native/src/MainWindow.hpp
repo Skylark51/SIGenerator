@@ -97,6 +97,8 @@ private:
   QWidget* createQuickToolbar();
   void connectPreviewInputs();
   void chooseFiles();
+  void linkSinglePoint();
+  void unlinkSinglePoint();
   void chooseDirectory();
   void addNamedFiles(bool replace=false);
   void acceptPaths(const QStringList& paths);
@@ -114,7 +116,7 @@ private:
   QJsonArray reactionStages_;
   void exportSiDocument();
   void applyNamedLabelsForExport();
-  bool prepareFigures();
+  bool prepareFigures(bool preflightDone=false);
   QJsonObject figureSettings_;
   QVector<si::DocumentFigure> preparedFigures_;
   QHash<QString,QVector<si::DocumentFigure>> preparedStageFigures_;
@@ -149,6 +151,7 @@ private:
   QComboBox* reference_{};
   QString pendingReferencePath_;
   bool parsing_{};
+  bool generationRunning_{};
   quint64 importGeneration_{};
   QFutureWatcherBase* importWatcher_{};
   struct ImportRequest { QList<QString> paths; bool discoverIrc{true}; QString stageId; };
@@ -191,12 +194,16 @@ private:
   QSplitter* mainSplitter_{};
   QTabWidget* workspaceTabs_{};
   QByteArray workspaceSplitState_;
+  bool workspaceFocused_{};
+  bool restoringSplitterState_{};
+  bool splitterStateRestored_{};
   MoleculeViewWidget* moleculeView_{};
   DocumentPreviewWidget* preview_{};
   QTimer* previewTimer_{};
   si::SIDocumentModel documentModel_;
   std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>()};
   QHash<QString,QString> pairedPaths_;
+  QHash<QString,QString> manualPairedPaths_;
   QHash<QString,std::shared_ptr<const si::GaussianResult>> parsed_;
   QStringList pendingStructureLabels_;
   QHash<QString,QString> pendingLabelsByPath_;

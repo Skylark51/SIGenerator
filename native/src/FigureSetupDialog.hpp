@@ -44,6 +44,7 @@ private:
   QCheckBox* indices_{};
   QCheckBox* hideHydrogens_{};
   QLabel* status_{};
+  QPushButton* addPanel_{};
   QPushButton* previous_{};
   QPushButton* next_{};
   int group_{};

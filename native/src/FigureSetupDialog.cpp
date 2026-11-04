@@ -107,7 +107,25 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
       }
       if(!row.isEmpty())restored.append(row);
     }
-    if(!restored.isEmpty()){rows_=restored;customRows_=true;}
+    if(!restored.isEmpty()){
+      QVector<QVector<int>> limited;
+      QJsonObject updatedViews=views_;
+      for(int oldRow=0;oldRow<restored.size();++oldRow){
+        const auto& row=restored[oldRow];
+        for(int first=0;first<row.size();first+=3){
+          const int newRow=limited.size();
+          QVector<int> chunk;
+          for(int original=first;original<std::min(first+3,int(row.size()));++original){
+            chunk.append(row[original]);
+            const auto oldKey=QStringLiteral("row:%1:%2").arg(oldRow).arg(original);
+            const auto newKey=QStringLiteral("row:%1:%2").arg(newRow).arg(original-first);
+            if(views_.contains(oldKey))updatedViews.insert(newKey,views_.value(oldKey));
+          }
+          limited.append(chunk);
+        }
+      }
+      rows_=limited;views_=updatedViews;customRows_=true;
+    }
   }
   auto* layout=new QVBoxLayout(this);
   auto* instruction=new QLabel(tr("렌더링 한 줄마다 원하는 구조를 선택하세요. 기본 구성은 첫 줄 3개, 이후 2개입니다.\n[새 줄]·[현재 줄에 추가]로 줄을 자유롭게 구성하며 같은 구조도 여러 줄에 사용할 수 있습니다. Youngcraft 스타일과 카메라 설정은 유지됩니다."),this);
@@ -133,9 +151,9 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
     return accepted?choices.indexOf(name):-1;
   };
   auto* addPanel=new QPushButton(tr("현재 줄에 구조 추가…"),this);
-  addPanel->setObjectName("addFigurePanel");lineControls->addWidget(addPanel);
+  addPanel->setObjectName("addFigurePanel");addPanel_=addPanel;lineControls->addWidget(addPanel);
   connect(addPanel,&QPushButton::clicked,this,[this,selectSource]{
-    if(rows_.isEmpty()||rows_[group_].size()>=4){status_->setText(tr("한 줄에는 최대 4개까지 표시할 수 있습니다."));return;}
+    if(rows_.isEmpty()||rows_[group_].size()>=3){status_->setText(tr("한 줄에는 최대 3개까지 표시할 수 있습니다."));return;}
     const int chosen=selectSource(tr("현재 Figure 줄에 추가할 구조"));if(chosen<0)return;
     storeGroup();customRows_=true;rows_[group_].append(chosen);showGroup();
   });
@@ -267,6 +285,10 @@ void FigureSetupDialog::showGroup(){
     connect(viewer,&MoleculeViewWidget::cameraChanged,this,[this,viewer]{
       if(changing_||!linked_->isChecked())return;changing_=true;for(auto* other:viewers_)if(other!=viewer)other->setCameraState(viewer->cameraState());changing_=false;
     });
+  }
+  if(addPanel_){
+    addPanel_->setEnabled(count<3);
+    addPanel_->setToolTip(count>=3?tr("한 줄에는 구조를 최대 3개까지 배치할 수 있습니다. 새 렌더링 줄을 추가하세요."):tr("현재 Figure 줄에 구조를 추가합니다."));
   }
   previous_->setEnabled(group_>0);const bool last=group_+1>=rows_.size();next_->setText(last?tr("Figure 적용"):tr("다음 줄"));
   status_->setText(tr("렌더링 줄 %1 / %2 · %3개 구조%4").arg(group_+1).arg(rows_.size()).arg(count).arg(failed?tr(" · 원자 대응이 다른 구조는 직접 회전하세요."):QString()));

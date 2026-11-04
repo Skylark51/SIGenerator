@@ -85,7 +85,7 @@ int main(int argc,char** argv){
   check(document.indexOf("Reaction profile")<document.indexOf("<w:tbl>")&&document.indexOf("</w:tbl>")<document.indexOf("Markup")&&document.indexOf(">References<")<document.indexOf(">Cartesian Coordinates<"),"legacy figures before tables and captions below tables");
   check(document.contains("w:num=\"3\"")&&document.contains("0.957200")&&document.contains("w:sz w:val=\"12\""),"legacy three-column coordinates and six decimal places");
   check(document.contains("<w:tblHeader/>")&&document.contains("<w:cantSplit/>")&&document.contains("<w:vAlign w:val=\"center\"/>")&&!document.contains("<w:shd"),"table formatting");
-  check(document.count("<w:noWrap/>")==document.count("<w:tc>")&&document.contains("<w:tblLayout w:type=\"autofit\"/>"),"all table cells prohibit line wrapping and allow columns to expand");
+  check(document.contains("<w:tblLayout w:type=\"fixed\"/>")&&document.contains("<w:gridCol w:w=\"")&&document.count("<w:noWrap/>")<document.count("<w:tc>"),"fixed page-width grid and selective numeric cell no-wrap");
   check(document.contains("w:val=\"subscript\"")&&document.contains("w:val=\"superscript\""),"existing caption markup retained");
   const QByteArray superscript="w:val=\"superscript\"/></w:rPr><w:t xml:space=\"preserve\">5</w:t>";
   const QByteArray subscriptCR="w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">CR</w:t>";

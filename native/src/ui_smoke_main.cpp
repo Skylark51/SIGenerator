@@ -408,6 +408,14 @@ struct Phase1Smoke {
     cards->itemWidget(cards->item(0))->findChild<QToolButton*>("favoriteProject")->click();library.findChild<QToolButton*>("projectTheme2")->click();
     ProjectManagerDialog restored;auto* restoredCards=restored.findChild<QListWidget*>("recentProjectsList");
     ok&=check(restoredCards->item(0)->data(Qt::UserRole).toString()==pinnedPath&&restoredCards->itemWidget(restoredCards->item(0))->findChild<QToolButton*>("favoriteProject")->isChecked()&&restored.findChild<QToolButton*>("projectTheme2")->isChecked(),"pin heart and theme persist across project managers");
+    ok&=check(qApp->styleSheet().contains("#f8f4fc"),"project theme also applies to editor application stylesheet");
+    auto* search=restored.findChild<QLineEdit*>("projectSearch");
+    auto* favoritesOnly=restored.findChild<QCheckBox*>("favoriteProjectsOnly");
+    search->setText("Library 15");
+    ok&=check(restoredCards->count()==1&&restoredCards->item(0)->text()=="Library 15","project name search filters paged library");
+    search->clear();favoritesOnly->setChecked(true);
+    ok&=check(restoredCards->count()==1&&restoredCards->item(0)->data(Qt::UserRole).toString()==pinnedPath,"favorites-only filter finds starred project");
+    favoritesOnly->setChecked(false);
     if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){restored.show();QCoreApplication::processEvents();restored.grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/project-manager-lavender.png");}
     restoredCards->itemWidget(restoredCards->item(0))->findChild<QToolButton*>("pinProject")->click();ok&=check(restoredCards->item(0)->data(Qt::UserRole).toString()==firstPath,"unpin restores recent project order");
     for(int i=0;i<(librarySize+2)/3;++i)next->click();ok&=check(!next->isEnabled()&&cards->count()==(librarySize-1)%3+1,"last project page disables next button");
@@ -765,7 +773,7 @@ struct Phase1Smoke {
     ok&=check(waitForImport(window)&&window.sourcePaths()==paths&&window.structureLabels()==labels,"replace from pasted list removes legacy auto-added IRC and restores exact order and labels");
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
     window.referencesText_->clear();window.computationalDetails_->clear();window.detailsEdited_=true;
-    window.siOutputPath_->setText(folder.filePath("empty-details.docx"));
+    window.siOutputPath_->setText(folder.filePath("empty-details.docx"));window.xyzOutputPath_->setText(folder.filePath("empty-details.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return QFile::exists(window.siOutputPath_->text())&&window.status_->text().contains("생성 완료");}),"SI export succeeds with both computational details and references empty");
@@ -798,6 +806,15 @@ struct Phase1Smoke {
       ok&=check(table.rows.size()==labels.size(),"reaction table contains exactly the pasted structures");
       for(int i=0;i<table.rows.size();++i)ok&=check(table.rows[i][0]==labels[i],"energy and spin rows retain every pasted reaction label");
     }
+    QStringList selectedAtomIds;
+    for(int i=0;i<window.files_->rowCount();++i)selectedAtomIds.append(i%2?"2":"1");
+    window.spinIndices_->setPlainText(selectedAtomIds.join("\n"));window.refreshDocumentModel();
+    const auto* mappedSpin=window.documentModel_.table(si::DocumentSection::SpinDensity);
+    ok&=check(mappedSpin&&mappedSpin->headers.value(1)=="Selected atom 1"&&mappedSpin->rows[1][1].contains("(2):"),
+      "structure-specific Mulliken atom IDs appear in cells under neutral headers");
+    window.spinIndices_->setPlainText("100");
+    ok&=check(window.preflightErrors().join("\n").contains("ID 100"),"out-of-range spin atom ID produces preflight error");
+    window.spinIndices_->clear();window.refreshDocumentModel();
     ProjectState state;state.files=window.sourcePaths();state.structureNames=window.structureLabels().join('\n');QString error;
     ok&=check(ProjectStore::save(folder.filePath("numbered-labels.json"),state,&error),"save numbered reaction labels");
     ProjectState loaded;ok&=check(ProjectStore::load(folder.filePath("numbered-labels.json"),&loaded,&error)&&loaded.structureNames==labels.join('\n')&&loaded.files==paths,"numbered reaction labels and order survive project serialization");
@@ -811,10 +828,10 @@ struct Phase1Smoke {
     const auto originalData=window.parsed_.value(paths[5]);
     window.fileNames_->setPlainText(rows.join('\n'));
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
-    const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);
+    const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);window.xyzOutputPath_->setText(folder.filePath("export-synced-labels.xyz"));
     chooseSiRendering(&window,QMessageBox::NoRole);
     window.findChild<QToolButton*>("generateSiButton")->click();
-    ok&=check(waitUntil([&]{return QFile::exists(output)&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
+    ok&=check(waitUntil([&]{return QFile::exists(output)&&QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
     ok&=check(window.parsed_.value(paths[5])==originalData&&!window.parsing_,"export name synchronization reuses parsed structures and their spin sources");
     QFile generated(output);
     if(generated.open(QIODevice::ReadOnly)){
@@ -1104,10 +1121,10 @@ struct Phase1Smoke {
     if(orderedDocx.open(QIODevice::ReadOnly)){const auto bytes=orderedDocx.readAll();auto visible=QString::fromUtf8(bytes);visible.remove(QRegularExpression("<[^>]*>"));ok&=check(visible.indexOf("3TS-freq")>=0&&visible.indexOf("3TS-freq")<visible.indexOf("1A-freq")&&visible.indexOf("1A-freq")<visible.indexOf("3A-freq"),"DOCX table rows use custom file order");}else ok=false;
     window.files_->selectRow(0);window.moveSelectedStructure(2);window.refreshDocumentModel();
     window.referencesText_->setPlainText("[1] SI output test reference.");
-    window.siOutputPath_->setText(folder.filePath("SI.docx"));
+    window.siOutputPath_->setText(folder.filePath("SI.docx"));window.xyzOutputPath_->setText(folder.filePath("SI.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
     window.exportSiDocument();
-    ok&=check(waitUntil([&]{return window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
+    ok&=check(waitUntil([&]{return QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
     ok&=check(!window.documentModel_.figures.isEmpty(),"rendering opt in retains molecular figures");
     window.captions_->setPlainText("Previously prepared Figure caption");window.refreshDocumentModel();
     window.siOutputPath_->setText(folder.filePath("tables-only.docx"));
@@ -1220,6 +1237,7 @@ bool figureWorkflowSmoke(){
   FigureSetupDialog dialog(structures,paths,{});dialog.show();QTest::qWait(100);
   auto visibleViews=[&]{QVector<MoleculeViewWidget*> result;for(auto* view:dialog.findChildren<MoleculeViewWidget*>())if(view->isVisible())result.append(view);return result;};
   auto views=visibleViews();ok&=check(views.size()==3,"first Figure group has three molecules");
+  ok&=check(!dialog.findChild<QPushButton*>("addFigurePanel")->isEnabled(),"three-molecule figure row disables add button");
   auto state=views[1]->cameraState();state.insert("yaw",48.0);views[1]->setCameraState(state);
   ok&=check(views[0]->cameraState()==state&&views[2]->cameraState()==state,"TS camera is shared with endpoints");
   dialog.findChild<QCheckBox*>("linkFigureCameras")->setChecked(false);
@@ -1277,12 +1295,26 @@ bool figureWorkflowSmoke(){
   const auto customSettings=customized.settings();
   ok&=check(customSettings.value("rows").toArray().size()==4&&customSettings.value("rows").toArray().last().toArray().size()==2,
     "custom row composition is serialized for project persistence");
+  QJsonArray originalSources;for(const auto& path:paths)originalSources.append(path);
+  QJsonObject fourPanelSettings{{"sources",originalSources},{"rows_version",1},
+    {"rows",QJsonArray{QJsonArray{paths[0],paths[1],paths[2],paths[3]},QJsonArray{paths[4],paths[5]}}}};
+  FigureSetupDialog migratedFigure(structures,paths,fourPanelSettings);
+  const auto migratedRows=migratedFigure.settings().value("rows").toArray();
+  ok&=check(migratedRows.size()==3&&migratedRows[0].toArray().size()==3&&migratedRows[1].toArray().size()==1&&migratedRows[2].toArray().size()==2,
+    "older four-molecule figure rows are migrated without losing structures");
   FigureSetupDialog restoredFigure(structures,paths,customSettings);
   ok&=check(restoredFigure.settings().value("rows")==customSettings.value("rows"),
     "custom Figure rows are restored with their source identities");
   ProjectState project;project.files=paths;project.figureSettings=dialog.settings();QString error;QTemporaryDir temp;
   ok&=check(ProjectStore::save(temp.filePath("figure.json"),project,&error),"save Figure settings");ProjectState restored;
-  ok&=check(ProjectStore::load(temp.filePath("figure.json"),&restored,&error)&&restored.figureSettings==project.figureSettings&&!restored.includeAbsolute,"camera/order settings roundtrip and absolute opt in");
+  const bool figureLoaded=ProjectStore::load(temp.filePath("figure.json"),&restored,&error);
+  const auto originalFigures=project.figureSettings, roundtripFigures=restored.figureSettings;
+  ok&=check(figureLoaded&&!restored.includeAbsolute&&
+    roundtripFigures.value("rows").toArray().size()==originalFigures.value("rows").toArray().size()&&
+    roundtripFigures.value("views").toObject().size()==originalFigures.value("views").toObject().size()&&
+    roundtripFigures.value("order").toArray().size()==originalFigures.value("order").toArray().size()&&
+    roundtripFigures.value("sources").toArray().first().toString()==temp.filePath(paths.first()),
+    "Figure cameras/order retained and source paths canonically resolved on project v9 load");
   si::SIDocumentModel model;model.figures=figures;model.coordinates=structures;model.computationalDetails="Geometry optimizations and vibrational frequency calculations were performed using the calculation methods reported in the source files [1].";model.referencesText="[1] Test reference supplied for output verification.";
   for(const auto section:{si::DocumentSection::AbsoluteEnergy,si::DocumentSection::RelativeEnergy,si::DocumentSection::SpinDensity,si::DocumentSection::SelectedGeometry})model.tables.append({section,QString("Section %1").arg(int(section)),{"Structure","Value"},{{"Structure 1","0.000"}},{}});
   const auto output=QDir::current().filePath("si-figures-current-smoke.docx");ok&=check(DocxWriter::writeDocument(output,model,&error),"DOCX with embedded rendered molecule Figures");
@@ -1296,7 +1328,45 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
-  ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))!=nullptr,"XYZ generate button");
+  ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
+
+  {
+    auto* splitter=window.findChild<QSplitter*>("mainSplitter");
+    auto* focus=window.findChild<QToolButton*>("focusWorkspace");
+    for(const QSize resolution:{QSize(1050,720),QSize(1480,900),QSize(1920,1080)}){
+      window.resize(resolution);QCoreApplication::processEvents();
+      const auto sizes=splitter->sizes();
+      ok&=check(sizes.size()==3&&std::all_of(sizes.cbegin(),sizes.cend(),[](int value){return value>0;}),
+        "splitter keeps all three panels reachable at requested window sizes");
+    }
+    window.resize(1480,900);QCoreApplication::processEvents();
+    splitter->setSizes({260,540,540});
+    QMetaObject::invokeMethod(splitter,"splitterMoved",Qt::DirectConnection,Q_ARG(int,260),Q_ARG(int,1));
+    QCoreApplication::processEvents();
+    QSettings prefs("SI Generator","SIGeneratorTests");
+    const auto saved=prefs.value("mainSplitterState").toByteArray();
+    const auto before=splitter->sizes();
+    ok&=check(!saved.isEmpty(),"splitter move persists its geometry");
+    if(focus){
+      focus->setChecked(true);QCoreApplication::processEvents();
+      ok&=check(prefs.value("mainSplitterState").toByteArray()==saved,"focus mode cannot overwrite persisted split state");
+      focus->setChecked(false);QCoreApplication::processEvents();
+      const auto restored=splitter->sizes();
+      ok&=check(restored.size()==3&&std::abs(restored[0]-before[0])<=10,"focus exit restores previous splitter layout");
+    }
+    {
+      MainWindow reopened;reopened.show();QCoreApplication::processEvents();
+      auto* restoredSplitter=reopened.findChild<QSplitter*>("mainSplitter");
+      const auto sizes=restoredSplitter->sizes();
+      const auto ratio=[&](const QList<int>& values){
+        const int total=values[0]+values[1]+values[2];
+        return total?static_cast<double>(values[0])/total:0.0;
+      };
+      ok&=check(sizes.size()==3&&std::abs(ratio(sizes)-ratio(before))<0.08,
+        "saved splitter proportions survive editor reopening");
+    }
+    window.resize(1480,900);
+  }
   auto* mime=new QMimeData;mime->setUrls({QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1]))});QDragEnterEvent enter(QPoint(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&enter);QDropEvent drop(QPointF(20,20),Qt::CopyAction,mime,Qt::LeftButton,Qt::NoModifier);QApplication::sendEvent(&window,&drop);ok&=check(waitUntil([table]{return table&&table->rowCount()==1;})&&Phase1Smoke::waitForImport(window),"Gaussian drop and parse");
   if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR")){
     const auto dir=qEnvironmentVariable("SI_NAV_SAMPLE_DIR");QDir().mkpath(dir);QTest::qWait(300);window.grab().save(dir+"/structures.png");

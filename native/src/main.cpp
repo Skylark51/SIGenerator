@@ -1,5 +1,6 @@
 #include "MainWindow.hpp"
 #include "ProjectManagerDialog.hpp"
+#include "AppTheme.hpp"
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QIcon>
@@ -111,22 +112,7 @@ protected:
 int main(int argc, char* argv[]) {
   QSurfaceFormat format;format.setSamples(4);format.setDepthBufferSize(24);format.setStencilBufferSize(8);QSurfaceFormat::setDefaultFormat(format);
   QApplication application(argc,argv);application.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
-  application.setStyleSheet(QStringLiteral(R"(
-    QWidget{color:#334155;font-size:9pt} QMainWindow,QScrollArea,#quickToolbar{background:#f4f7fb}
-    QGroupBox{background:#fff;border:1px solid #d8e1ec;border-radius:8px;margin-top:12px;padding:10px 7px 7px} QGroupBox::title{subcontrol-origin:margin;left:10px;padding:0 5px;color:#52647a;font-weight:600}
-    QLineEdit,QTextEdit,QComboBox,QSpinBox,QTableWidget{background:#fff;border:1px solid #cbd7e5;border-radius:7px;padding:5px;selection-background-color:#b8d8ff} QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QSpinBox:focus{border:1px solid #7aaee8}
-    QPushButton,QToolButton{background:#e4edf7;border:1px solid #bfd0e3;border-radius:8px;padding:7px;color:#34495e} QPushButton:hover,QToolButton:hover{background:#d6e5f5} QPushButton:pressed,QToolButton:pressed{background:#c7dcef} QPushButton:disabled,QToolButton:disabled{background:#edf1f5;color:#9aa7b5;border-color:#dde3ea}
-    QToolButton[tone="energy"]{background:#e4efff;border-color:#b9d3f4} QToolButton[tone="spin"]{background:#e8f6ed;border-color:#bcdcc7} QToolButton[tone="geometry"]{background:#fff0dc;border-color:#ead0a8} QToolButton[tone="view"]{background:#eee9fb;border-color:#d3c5ed} QToolButton[tone="generate"]{background:#dceef5;border-color:#acd0df;font-weight:600}
-    QToolBar#quickToolbar{background:#fff;border:0;border-bottom:1px solid #d8e1ec;padding:5px;spacing:4px}
-    QToolBar#quickToolbar QToolButton{background:transparent;border:1px solid transparent;border-radius:7px;padding:4px}
-    QToolBar#quickToolbar QToolButton:hover{background:#edf3fb;border-color:#c4d6ec}
-    QToolBar#quickToolbar QToolButton:checked{background:#dceaff;border-color:#7da6db}
-    QToolBar#quickToolbar QToolButton:focus{border-color:#387bc3}
-    QToolBar::separator{background:#dbe3ee;width:1px;margin:7px 5px}
-    QLabel#toolbarBrand{font-size:12pt;font-weight:600;color:#24486c}
-    QLabel#currentSectionLabel{padding:0 10px;color:#52647a;font-weight:600}
-    QCheckBox{spacing:7px} QHeaderView::section{background:#e8eef6;border:0;border-bottom:1px solid #c7d3e1;padding:6px;font-weight:600} QSplitter::handle{background:#dce5ef}
-  )"));
+  applySiApplicationTheme(siStoredTheme());
   application.setWindowIcon(QIcon(":/si/si-generator.png"));application.setQuitOnLastWindowClosed(false);
   StartupSplash splash(application.primaryScreen());
   splash.show();
