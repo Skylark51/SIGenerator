@@ -40,5 +40,6 @@ struct ProjectState {
   // Portable, compressed Gaussian extraction data; never the raw output text.
   QJsonObject gaussianSnapshots;
   QJsonObject pairedSnapshotPaths;
+  QJsonObject manualPairedPaths;
 };
 class ProjectStore final { public: static bool save(const QString& path, const ProjectState& state, QString* error); static bool load(const QString& path, ProjectState* state, QString* error); };
