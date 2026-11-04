@@ -5,6 +5,7 @@ class QListWidget;
 class QLineEdit;
 class QPushButton;
 class QLabel;
+class QCheckBox;
 
 class ProjectManagerDialog final : public QDialog {
 public:
@@ -22,6 +23,8 @@ private:
   void renderProjects(const QString& preferredPath = {});
   void applyTheme(int index);
   QListWidget* projects_{};
+  QLineEdit* search_{};
+  QCheckBox* favoritesOnly_{};
   QLineEdit* name_{};
   QLineEdit* location_{};
   QPushButton* open_{};
