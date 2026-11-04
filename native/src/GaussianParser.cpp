@@ -72,6 +72,13 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
   static const std::regex compactRevision(R"(G(\d{2})Rev([A-Za-z]\.\d+))",std::regex::icase);
   while (std::getline(input, line)) {
     const auto clean = trim(line); const auto low = lower(clean);
+    // A normal termination from an earlier Link1 job does not certify the last job.
+    if(result.normalTermination &&
+       ((!clean.empty()&&clean.front()=='#') ||
+        contains(low,"entering gaussian system") ||
+        contains(low,"entering link 1 =") ||
+        contains(low,"--link1--")))
+      result.normalTermination=false;
     if (!clean.empty() && clean.front() == '#') { collectingRoute = true; activeRoute = clean; }
     else if (collectingRoute && clean.empty()) { route = activeRoute; collectingRoute = false; }
     else if (collectingRoute) { activeRoute += " " + clean; }
