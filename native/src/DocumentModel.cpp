@@ -54,15 +54,8 @@ QString formatNumber(const std::optional<double>& value, int defaultDigits, int 
 }
 
 
-QString relativeTemperatureNote(const std::vector<EnergyRecord>& records){
-  if(records.empty())return {};
-  const double temperature=thermochemistryTemperature(records.front().frequency);
-  if(std::any_of(records.begin(),records.end(),[temperature](const auto& record){
-    return thermochemistryTemperature(record.frequency)!=temperature;
-  }))return QStringLiteral("T is taken from each frequency calculation. Entropy and Gibbs energy differences require the same temperature.");
-  auto printed=QString::number(temperature,'f',3);
-  if(printed.endsWith('0'))printed.chop(1);
-  return QStringLiteral("T = %1 K.").arg(printed);
+QString relativeTemperatureNote(){
+  return QStringLiteral("T = %1 K.").arg(LegacyTemperatureKelvin,0,'f',2);
 }
 
 QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBasis basis, QStringList* warnings) {
@@ -138,7 +131,7 @@ QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBas
     sentences.append("Composite Gibbs free energies were calculated as E_SPE + (G_freq − E_freq), where E_freq and G_freq are the SCF energy and the sum of electronic and thermal free energies from the frequency calculation. Reported dispersion energies were not added again.");
     if(spe.size()!=records.size())sentences.append("For structures without a paired SPE energy, G_freq was used.");
   }else if(basis==EnergyBasis::LegacyComposite){
-    sentences.append("Relative energies were assembled using the original SI component formulas: electronic energy differences plus ZPE, additional thermal, entropy, and included correction terms. "+relativeTemperatureNote(records));
+    sentences.append("Relative energies were assembled using the original SI component formulas: electronic energy differences plus ZPE, additional thermal, entropy, and included correction terms. "+relativeTemperatureNote());
   }else if(basis==EnergyBasis::Electronic)sentences.append("Relative energies were calculated from electronic energies, using paired SPE energies where available.");
   else if(basis==EnergyBasis::ElectronicZpe)sentences.append("Relative energies include the electronic energy and the frequency calculation's zero-point correction.");
   else if(basis==EnergyBasis::Enthalpy)sentences.append("Enthalpies were obtained from the primary calculation, with E_SPE − E_freq added where a paired SPE energy was available.");

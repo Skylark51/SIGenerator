@@ -70,7 +70,7 @@ struct SIDocumentModel {
 [[nodiscard]] QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBasis basis, QStringList* warnings=nullptr);
 [[nodiscard]] DocumentTable validationTable(const std::vector<EnergyRecord>& records);
 [[nodiscard]] QString displayMechanism(const SIDocumentModel& model);
-[[nodiscard]] QString relativeTemperatureNote(const std::vector<EnergyRecord>& records);
+[[nodiscard]] QString relativeTemperatureNote();
 [[nodiscard]] QString relativeGibbsFootnote(const DocumentTable& table);
 [[nodiscard]] QString computationalDetailsBody(QString text);
 [[nodiscard]] QString formatNumber(double value, int defaultDigits, int precisionOverride);

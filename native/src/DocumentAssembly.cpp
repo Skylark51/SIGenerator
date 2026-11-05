@@ -181,7 +181,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
         tr("Relative energy values of %1 in kcal/mol.").arg(si::displayMechanism(model)),
         {QString(),"ΔE","ΔΔE^{a}","E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}","Δ_{Dispersion}","Δ_{Complexation}","ΔG^{c}"},{},{}};
       std::vector<si::LegacyRelativeEnergy> relative;
-      if(!manualRef)table.thermochemistryNote=si::relativeTemperatureNote(records);
+      if(!manualRef)table.thermochemistryNote=si::relativeTemperatureNote();
       if(!manualRef)relative=si::legacyRelativeEnergies(records,records[refIndex],includeDispersion_->isChecked(),includeComplexation_->isChecked());
       else {
         table.thermochemistryNote=tr("Thermal components are not evaluated for a manually entered reference.");
@@ -299,7 +299,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     {if(!stage.value(key).toBool(key=="absolute"?includeAbsolute_->isChecked():true))continue;const auto members=stage["files"].toArray();auto split=table;split.stageId=stage.value("id").toString(stage["name"].toString());split.rows.clear();QStringList splitPaths;std::vector<si::EnergyRecord> selected;
       for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i]){split.rows.append(row);splitPaths.append(member.toString());}}else {split.rows.append(table.rows[i]);splitPaths.append(member.toString());}if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
       if(split.rows.isEmpty())continue;
-      split.caption=stage["name"].toString()+": "+table.caption;
+      if(key!="geometry")split.caption=stage["name"].toString()+": "+table.caption;
       if(key=="spin"&&spinIndices_->toPlainText().trimmed().isEmpty()&&!selected.empty()){
         // The global six-atom ranking can select IDs absent from another
         // reaction. Rank only atoms reported for every structure in this stage.
@@ -356,11 +356,9 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
       }
       if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single"&&!selected.empty()){
         size_t ref=0;for(size_t i=0;i<selected.size();++i)if(QFileInfo(QString::fromStdWString(selected[i].frequency.path.wstring())).absoluteFilePath().compare(QFileInfo(stage["reference"].toString()).absoluteFilePath(),Qt::CaseInsensitive)==0)ref=i;
-        split.thermochemistryNote=si::relativeTemperatureNote(selected);
         const auto relative=si::legacyRelativeEnergies(selected,selected[ref],includeDispersion_->isChecked(),includeComplexation_->isChecked());
         split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
         for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}
-        split.caption+=tr(" Reference: %1.").arg(QString::fromStdString(selected[ref].name));
       }
       if(key=="relative"&&stage.value("structure_relative_enabled").toBool(false)){
         split.hasManualRelativeValues=!stage.value("structure_relative_values").toObject().isEmpty();
@@ -384,7 +382,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     const auto suggestion=si::suggestGeometry(geometryRecords);
     if(!suggestion.distances.empty()){
       si::DocumentTable geometryTable{si::DocumentSection::SelectedGeometry,
-        stage["name"].toString()+tr(": Selected Geometries of %1 in Å and °.").arg(si::displayMechanism(model)),
+        tr("Selected Geometries of %1 in Å and °.").arg(si::displayMechanism(model)),
         {QString()},{},{}};
       geometryTable.stageId=id;
       const auto& labelSource=geometryRecords[suggestion.recordIndices.front()].frequency;

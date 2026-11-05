@@ -14,6 +14,13 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QtConcurrent/QtConcurrent>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#include <shellapi.h>
+#else
+#include <QDesktopServices>
+#include <QUrl>
+#endif
 
 bool MainWindow::prepareFigures(bool preflightDone){
   if(!preflightDone&&!validateExport())return false;
@@ -75,6 +82,20 @@ void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabel
       QMessageBox::warning(this,tr("SI + XYZ 생성 결과"),
         tr("DOCX: %1\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
     }
+    if(!result.docx)return;
+    QMessageBox openDocument(QMessageBox::Question,tr("SI 문서 생성 완료"),
+      tr("생성한 SI 문서를 Word에서 열겠습니까?\n%1").arg(path),
+      QMessageBox::Ok|QMessageBox::Cancel,this);
+    openDocument.setObjectName("siOpenDocument");
+    openDocument.setDefaultButton(QMessageBox::Cancel);
+    if(openDocument.exec()!=QMessageBox::Ok)return;
+#ifdef Q_OS_WIN
+    const auto arguments=(QStringLiteral("\"")+QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath())+QStringLiteral("\"")).toStdWString();
+    const bool opened=reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",L"winword.exe",arguments.c_str(),nullptr,SW_SHOWNORMAL))>32;
+#else
+    const bool opened=QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()));
+#endif
+    if(!opened)QMessageBox::warning(this,tr("문서 열기 실패"),tr("생성한 SI 문서를 열 수 없습니다.\n%1").arg(path));
   });
   watcher->setFuture(QtConcurrent::run([path,xyz,model,historyPath,historyState,historyMessage]{
     GenerationResult result;

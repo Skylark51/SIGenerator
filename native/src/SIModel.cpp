@@ -100,15 +100,15 @@ std::optional<double> selectEnergy(EnergyRecord& value, EnergyBasis basis) {
   case EnergyBasis::Enthalpy: value.label = value.singlePoint ? "TZVPP SPE + enthalpy correction" : "frequency enthalpy only"; return value.selectedHartree = freq.enthalpy ? (value.singlePoint && freq.scfEnergy ? *electronic + *freq.enthalpy - *freq.scfEnergy : *freq.enthalpy) : std::optional<double>{};
   case EnergyBasis::Gibbs:
   case EnergyBasis::DefaultComposite: break;
-  case EnergyBasis::LegacyComposite: value.label = "TZVPP SPE + ZPE + thermal -T*S + dispersion"; if (!freq.zeroPointCorrection || !freq.thermalCorrection || !freq.entropy) return value.selectedHartree = std::optional<double>{}; return value.selectedHartree = *electronic + *freq.zeroPointCorrection + (*freq.thermalCorrection - *freq.zeroPointCorrection) - (thermochemistryTemperature(freq) * *freq.entropy / 1000.0) / HartreeToKcal + freq.dispersion.value_or(0.0);
+  case EnergyBasis::LegacyComposite: value.label = "TZVPP SPE + ZPE + thermal -T*S + dispersion"; if (!freq.zeroPointCorrection || !freq.thermalCorrection || !freq.entropy) return value.selectedHartree = std::optional<double>{}; return value.selectedHartree = *electronic + *freq.zeroPointCorrection + (*freq.thermalCorrection - *freq.zeroPointCorrection) - (LegacyTemperatureKelvin * *freq.entropy / 1000.0) / HartreeToKcal + freq.dispersion.value_or(0.0);
   }
   return std::nullopt;
 }
 std::vector<RelativeEnergy> relativeEnergies(std::vector<EnergyRecord>& values, const EnergyRecord& reference, EnergyBasis basis) {
   auto referenceCopy = reference; const auto referenceEnergy = selectEnergy(referenceCopy, basis); std::vector<RelativeEnergy> output; output.reserve(values.size());
   for (auto& value : values) { const auto energy = selectEnergy(value, basis); const bool thermal=basis==EnergyBasis::DefaultComposite||basis==EnergyBasis::Gibbs||
-      basis==EnergyBasis::Enthalpy||basis==EnergyBasis::LegacyComposite;
-    const auto delta = energy && referenceEnergy && (!thermal||thermochemistryTemperature(value.frequency)==thermochemistryTemperature(reference.frequency)) ? std::optional<double>{*energy - *referenceEnergy} : std::optional<double>{}; output.push_back({value.name, delta, delta ? std::optional<double>{*delta * HartreeToKcal} : std::optional<double>{}}); } return output;
+      basis==EnergyBasis::Enthalpy;
+    const auto delta = energy && referenceEnergy && (!thermal||value.frequency.temperatureKelvin.value_or(LegacyTemperatureKelvin)==reference.frequency.temperatureKelvin.value_or(LegacyTemperatureKelvin)) ? std::optional<double>{*energy - *referenceEnergy} : std::optional<double>{}; output.push_back({value.name, delta, delta ? std::optional<double>{*delta * HartreeToKcal} : std::optional<double>{}}); } return output;
 }
 std::array<std::optional<double>,6> legacyAbsoluteEnergyValues(const EnergyRecord& value) {
   const auto& f=value.frequency;
@@ -130,9 +130,7 @@ std::vector<LegacyRelativeEnergy> legacyRelativeEnergies(const std::vector<Energ
     if(terms[0]&&terms[2])terms[1]=*terms[2]-*terms[0];
     if(abs[2]&&ref[2])terms[3]=*abs[2]-*ref[2];
     if(abs[3]&&ref[3]&&terms[3])terms[4]=*abs[3]-*ref[3]-*terms[3];
-    const double temperature=thermochemistryTemperature(value.frequency);
-    if(abs[4]&&ref[4]&&temperature==thermochemistryTemperature(reference.frequency))
-      terms[5]=-(*abs[4]-*ref[4])*temperature/1000.0;
+    if(abs[4]&&ref[4])terms[5]=-(*abs[4]-*ref[4])*LegacyTemperatureKelvin/1000.0;
     terms[6]=includeDispersion?(*abs[5]-*ref[5])*HartreeToKcal:0.0;
     // The legacy Python table stores complexation as a per-row correction.
     terms[7]=includeComplexation?value.complexationKcal.value_or(0.0):0.0;

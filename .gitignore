@@ -24,6 +24,7 @@
 /*.dll
 /platforms/
 /generic/
+/iconengines/
 /imageformats/
 /networkinformation/
 /styles/

@@ -67,6 +67,9 @@ qt_add_library(si_editor STATIC
   src/MoleculeViewWidget.cpp src/MoleculeViewWidget.hpp
 )
 target_link_libraries(si_editor PUBLIC si_project si_document Qt6::Widgets Qt6::Concurrent Qt6::OpenGLWidgets)
+if(WIN32)
+  target_link_libraries(si_editor PRIVATE shell32)
+endif()
 
 qt_add_executable(SIGenerator src/main.cpp)
 if(WIN32)

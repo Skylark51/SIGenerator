@@ -95,7 +95,7 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
       result.program="Gaussian";result.version=metadata[1].str();
     }
     }
-    if(contains(low,"temperature")&&contains(low,"kelvin"))
+    if(low.starts_with("temperature")&&contains(low,"kelvin"))
       result.temperatureKelvin=numberAfter(low,"temperature");
     if(contains(low,"pressure")&&contains(low,"atm"))
       result.pressureAtm=numberAfter(low,"pressure");
