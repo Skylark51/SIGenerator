@@ -5,6 +5,7 @@
 #include "DocumentPreviewWidget.hpp"
 #include "MoleculeViewWidget.hpp"
 #include "ProjectStore.hpp"
+#include "ProjectHistory.hpp"
 #include "GaussianSnapshot.hpp"
 #include "ProjectManagerDialog.hpp"
 #include "StructureAssignmentTable.hpp"
@@ -184,6 +185,7 @@ QGroupBox* section(const QString& title,QWidget* parent,bool collapsible=false){
 MainWindow::MainWindow(){
   setObjectName(QStringLiteral("mainWindow"));setAcceptDrops(true);setWindowTitle(tr("SI Generator — 네이티브 (Native)"));resize(1480,900);
   auto* fileMenu=menuBar()->addMenu(tr("파일 (File)"));fileMenu->addAction(tr("Gaussian 파일 열기 (Open Files)…"),QKeySequence::Open,this,&MainWindow::chooseFiles);fileMenu->addAction(tr("고급 · 단계 일괄 구성…"),this,&MainWindow::editReactionStages);fileMenu->addAction(tr("프로젝트 관리…"),this,&MainWindow::projectManagerRequested);fileMenu->addAction(tr("프로젝트 열기 (Open Project)…"),this,&MainWindow::openProject);fileMenu->addAction(tr("프로젝트 저장 (Save Project)…"),QKeySequence::Save,this,&MainWindow::saveProject);
+  fileMenu->addAction(tr("프로젝트 버전 이력…"),this,&MainWindow::showProjectHistory)->setObjectName("projectHistoryAction");
   auto* splitter=new QSplitter(Qt::Horizontal,this);mainSplitter_=splitter;splitter->setObjectName(QStringLiteral("mainSplitter"));splitter->addWidget(createStageNavigation());splitter->addWidget(createInputPanel());splitter->addWidget(createWorkspace());splitter->setStretchFactor(0,0);splitter->setStretchFactor(1,1);splitter->setStretchFactor(2,1);splitter->setSizes({210,635,635});
   connect(splitter,&QSplitter::splitterMoved,this,[this]{
     if(workspaceFocused_||restoringSplitterState_||!splitterStateRestored_)return;
@@ -1106,7 +1108,48 @@ void MainWindow::closeEvent(QCloseEvent* event){if(!saveActiveProject()){event->
 bool MainWindow::saveProjectToPath(const QString& path){
   if(parsing_){QMessageBox::warning(this,tr("프로젝트 저장 대기"),tr("Gaussian 파일 해석이 끝난 뒤 저장해야 추출 데이터가 모두 포함됩니다."));return false;}
   for(const auto& source:sourcePaths())if(!parsed_.contains(source)){QMessageBox::warning(this,tr("프로젝트 저장 실패"),tr("추출 결과가 없는 구조가 있습니다: %1").arg(source));return false;}
-  refreshDocumentModel();ProjectState state;state.projectName=projectName_;state.files=sourcePaths();state.structureNames=structureLabels().join('\n');state.referenceMode=referenceMode_->currentData().toString();state.referencePath=reference_->currentData().toString();state.manualReference=manualReference_->text();state.energyInputMode=energyInputMode_->currentData().toString();state.energyBasis=QString::number(energyBasis_->currentData().toInt());state.manualAbsoluteNames=manualAbsoluteNames_->toPlainText();state.manualAbsoluteValues=manualAbsoluteValues_->toPlainText();state.manualRelativeNames=manualRelativeNames_->toPlainText();state.manualRelativeValues=manualRelativeValues_->toPlainText();state.spinNames=spinNames_->toPlainText();state.spinIndices=spinIndices_->toPlainText();state.spinAtomNumbers=spinAtomNumbers_->isChecked();state.geometryNames=geometryNames_->toPlainText();state.geometryIndices=geometryIndices_->toPlainText();state.geometryAtomNumbers=geometryAtomNumbers_->isChecked();state.captions=captions_->toPlainText();state.mechanismName=mechanismName_->text();state.documentTitle=documentTitle_->text();state.manuscriptTitle=manuscriptTitle_->text();state.authors=authors_->text();state.affiliations=affiliations_->text();state.correspondingEmail=correspondingEmail_->text();state.computationalDetails=computationalDetails_->toPlainText();state.computationalDetailsEdited=detailsEdited_;state.referencesText=referencesText_->toPlainText();state.figureSettings=figureSettings_;state.reactionStages=reactionStages_;state.includeAbsolute=includeAbsolute_->isChecked();state.decimalPlaces=0;state.includeDispersion=includeDispersion_->isChecked();state.includeComplexation=includeComplexation_->isChecked();state.baseDirectory=baseDirectory_->text();state.siPath=siOutputPath_->text();state.xyzPath=xyzOutputPath_->text();
+  refreshDocumentModel();
+  const auto state=captureProjectState();
+  QString error;if(!ProjectStore::save(path,state,&error)){QMessageBox::critical(this,tr("저장 실패 (Save Failed)"),error);return false;}currentProjectPath_=path;ProjectManagerDialog::rememberProject(path);status_->setText(tr("프로젝트 저장됨: %1").arg(path));return true;}
+ProjectState MainWindow::captureProjectState() const{
+  ProjectState state;
+  state.projectName=projectName_;
+  state.files=sourcePaths();
+  state.structureNames=structureLabels().join('\n');
+  state.referenceMode=referenceMode_->currentData().toString();
+  state.referencePath=reference_->currentData().toString();
+  state.manualReference=manualReference_->text();
+  state.energyInputMode=energyInputMode_->currentData().toString();
+  state.energyBasis=QString::number(energyBasis_->currentData().toInt());
+  state.manualAbsoluteNames=manualAbsoluteNames_->toPlainText();
+  state.manualAbsoluteValues=manualAbsoluteValues_->toPlainText();
+  state.manualRelativeNames=manualRelativeNames_->toPlainText();
+  state.manualRelativeValues=manualRelativeValues_->toPlainText();
+  state.spinNames=spinNames_->toPlainText();
+  state.spinIndices=spinIndices_->toPlainText();
+  state.spinAtomNumbers=spinAtomNumbers_->isChecked();
+  state.geometryNames=geometryNames_->toPlainText();
+  state.geometryIndices=geometryIndices_->toPlainText();
+  state.geometryAtomNumbers=geometryAtomNumbers_->isChecked();
+  state.captions=captions_->toPlainText();
+  state.mechanismName=mechanismName_->text();
+  state.documentTitle=documentTitle_->text();
+  state.manuscriptTitle=manuscriptTitle_->text();
+  state.authors=authors_->text();
+  state.affiliations=affiliations_->text();
+  state.correspondingEmail=correspondingEmail_->text();
+  state.computationalDetails=computationalDetails_->toPlainText();
+  state.computationalDetailsEdited=detailsEdited_;
+  state.referencesText=referencesText_->toPlainText();
+  state.figureSettings=figureSettings_;
+  state.reactionStages=reactionStages_;
+  state.includeAbsolute=includeAbsolute_->isChecked();
+  state.decimalPlaces=0;
+  state.includeDispersion=includeDispersion_->isChecked();
+  state.includeComplexation=includeComplexation_->isChecked();
+  state.baseDirectory=baseDirectory_->text();
+  state.siPath=siOutputPath_->text();
+  state.xyzPath=xyzOutputPath_->text();
   for(const auto& source:state.files){
     if(const auto result=parsed_.value(source))
       state.gaussianSnapshots.insert(source,si::GaussianSnapshot::encode(*result));
@@ -1119,7 +1162,8 @@ bool MainWindow::saveProjectToPath(const QString& path){
     }
   }
   for(auto it=manualPairedPaths_.cbegin();it!=manualPairedPaths_.cend();++it)state.manualPairedPaths.insert(it.key(),it.value());
-  QString error;if(!ProjectStore::save(path,state,&error)){QMessageBox::critical(this,tr("저장 실패 (Save Failed)"),error);return false;}currentProjectPath_=path;ProjectManagerDialog::rememberProject(path);status_->setText(tr("프로젝트 저장됨: %1").arg(path));return true;}
+  return state;
+}
 void MainWindow::openProject(){
   const auto path=QFileDialog::getOpenFileName(this,tr("SI 프로젝트 열기 (Open Project)"),baseDirectory_->text(),tr("SI Project (*.si_project.json *.json)"));if(path.isEmpty())return;
   loadProjectPath(path);
@@ -1127,6 +1171,10 @@ void MainWindow::openProject(){
 bool MainWindow::loadProjectPath(const QString& path){
   ProjectState state;QString error;if(!ProjectStore::load(path,&state,&error)){QMessageBox::critical(this,tr("열기 실패 (Open Failed)"),error);return false;}
   if(!currentProjectPath_.isEmpty()&&!saveActiveProject())return false;
+  applyProjectState(path,state);
+  return true;
+}
+void MainWindow::applyProjectState(const QString& path,const ProjectState& state){
   pendingStructureLabels_=lines(state.structureNames);pendingLabelsByPath_.clear();for(int i=0;i<state.files.size();++i)pendingLabelsByPath_.insert(QFileInfo(state.files[i]).absoluteFilePath(),pendingStructureLabels_.value(i,QFileInfo(state.files[i]).completeBaseName()));
   referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;
   manualPairedPaths_.clear();
@@ -1144,7 +1192,7 @@ bool MainWindow::loadProjectPath(const QString& path){
   setWindowTitle(tr("%1 — SI Generator").arg(projectName_));ProjectManagerDialog::rememberProject(currentProjectPath_);
   auto paired=state.pairedSnapshotPaths;
   for(auto it=state.manualPairedPaths.constBegin();it!=state.manualPairedPaths.constEnd();++it)paired.insert(it.key(),it.value());
-  activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,paired);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));return true;
+  activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,paired);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));
 }
 
 bool MainWindow::prepareFigures(bool preflightDone){
@@ -1208,7 +1256,10 @@ void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabel
   generationRunning_=true;
   if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(false);
   status_->setText(tr("SI DOCX + XYZ 생성 중…"));
-  struct GenerationResult {bool docx{},xyz{};QString docxError,xyzError;};
+  const auto historyPath=currentProjectPath_;
+  const auto historyState=historyPath.isEmpty()?QJsonObject():ProjectStore::serialize(historyPath,captureProjectState());
+  const auto historyMessage=tr("SI 내보내기 · %1").arg(QFileInfo(path).fileName());
+  struct GenerationResult {bool docx{},xyz{};QString docxError,xyzError,historyError;};
   auto* watcher=new QFutureWatcher<GenerationResult>(this);
   connect(watcher,&QFutureWatcher<GenerationResult>::finished,this,[this,watcher,path,xyz]{
     const auto result=watcher->result();
@@ -1216,16 +1267,19 @@ void MainWindow::exportSiDocument(){if(generationRunning_)return;applyNamedLabel
     if(auto* button=findChild<QToolButton*>(QStringLiteral("generateSiButton")))button->setEnabled(true);
     if(result.docx&&result.xyz){
       status_->setText(tr("SI 문서 생성 완료: %1 · XYZ 생성 완료: %2").arg(path,xyz));
+      if(!result.historyError.isEmpty())QMessageBox::warning(this,tr("버전 기록 실패"),result.historyError);
     }else{
       status_->setText(tr("생성 결과 · DOCX: %1 · XYZ: %2").arg(result.docx?tr("성공"):tr("실패"),result.xyz?tr("성공"):tr("실패")));
       QMessageBox::warning(this,tr("SI + XYZ 생성 결과"),
         tr("DOCX: %1\nXYZ: %2").arg(result.docx?tr("생성 완료"):result.docxError,result.xyz?tr("생성 완료"):result.xyzError));
     }
   });
-  watcher->setFuture(QtConcurrent::run([path,xyz,model]{
+  watcher->setFuture(QtConcurrent::run([path,xyz,model,historyPath,historyState,historyMessage]{
     GenerationResult result;
     result.docx=DocxWriter::writeDocument(path,model,&result.docxError);
     result.xyz=si::XyzWriter::write(xyz,model,&result.xyzError);
+    if(result.docx&&result.xyz&&!historyPath.isEmpty())
+      ProjectHistory(historyPath).record(historyState,historyMessage,&result.historyError);
     return result;
   }));
 }

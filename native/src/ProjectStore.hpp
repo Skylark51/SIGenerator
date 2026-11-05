@@ -42,4 +42,10 @@ struct ProjectState {
   QJsonObject pairedSnapshotPaths;
   QJsonObject manualPairedPaths;
 };
-class ProjectStore final { public: static bool save(const QString& path, const ProjectState& state, QString* error); static bool load(const QString& path, ProjectState* state, QString* error); };
+class ProjectStore final {
+public:
+  static QJsonObject serialize(const QString& path,const ProjectState& state);
+  static bool write(const QString& path,const QJsonObject& project,QString* error);
+  static bool save(const QString& path,const ProjectState& state,QString* error);
+  static bool load(const QString& path,ProjectState* state,QString* error);
+};

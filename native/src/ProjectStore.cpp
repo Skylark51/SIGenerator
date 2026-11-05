@@ -43,7 +43,7 @@ QJsonValue portablePaths(const QJsonValue& value,const QDir& folder,bool loading
 }
 }
 
-bool ProjectStore::save(const QString& path, const ProjectState& state, QString* error) {
+QJsonObject ProjectStore::serialize(const QString& path, const ProjectState& state) {
   const auto names=state.structureNames.split(QRegularExpression("[\\r\\n]+"),Qt::SkipEmptyParts);QJsonArray structures;
   for(qsizetype index=0;index<state.files.size();++index){const auto& file=state.files[index];const auto name=index<names.size()?names[index].trimmed():QFileInfo(file).completeBaseName();structures.append(QJsonObject{{"enabled",true},{"structure_name",name},{"main_file",file},{"gaussian_file_path",file}});}
   QJsonObject object{{"version",9},{"project_name",state.projectName},{"reaction_stages",state.reactionStages},{"molecular_figures",state.figureSettings},{"structures",structures},{"reference_settings",QJsonObject{{"mode",state.referenceMode},{"energy_basis",state.energyBasis},{"single_reference_path",state.referencePath},{"reference_path",state.referencePath},{"manual_reference_value",state.manualReference},{"manual_reference_unit","Hartree"}}},{"energy_input_mode",state.energyInputMode},{"include_absolute_table",state.includeAbsolute},{"decimal_places",state.decimalPlaces},{"include_relative_dispersion",state.includeDispersion},{"include_relative_complexation",state.includeComplexation},{"manual_energy_tables",QJsonObject{{"absolute_names",state.manualAbsoluteNames},{"absolute_values",state.manualAbsoluteValues},{"relative_names",state.manualRelativeNames},{"relative_values",state.manualRelativeValues}}},{"spin_settings",QJsonObject{{"spin_names",state.spinNames},{"spin_indices",state.spinIndices},{"show_atom_numbers",state.spinAtomNumbers}}},{"geometry_settings",QJsonObject{{"geo_names",state.geometryNames},{"geo_indices",state.geometryIndices},{"show_atom_numbers",state.geometryAtomNumbers}}},{"figure_captions",state.captions},{"captions",state.captions},{"mechanism_name",state.mechanismName},{"document_title",state.documentTitle},{"manuscript_metadata",QJsonObject{{"title",state.manuscriptTitle},{"authors",state.authors},{"affiliations",state.affiliations},{"corresponding_email",state.correspondingEmail}}},{"computational_details",state.computationalDetails},{"computational_details_edited",state.computationalDetailsEdited},{"references_text",state.referencesText},{"output_paths",QJsonObject{{"base_dir",state.baseDirectory},{"si_path",state.siPath},{"xyz_path",state.xyzPath}}},{"gaussian_snapshots",state.gaussianSnapshots},{"paired_snapshot_paths",state.pairedSnapshotPaths},{"manual_paired_paths",state.manualPairedPaths},{"generation_history",QJsonArray{}}};
@@ -56,6 +56,14 @@ bool ProjectStore::save(const QString& path, const ProjectState& state, QString*
     outputs.insert(QLatin1String(key),portablePaths(original,folder,false).toString());
   }
   object.insert("output_paths",outputs);
+  return object;
+}
+
+bool ProjectStore::save(const QString& path, const ProjectState& state, QString* error) {
+  return write(path,serialize(path,state),error);
+}
+
+bool ProjectStore::write(const QString& path, const QJsonObject& object, QString* error) {
   QSaveFile file(path);if(!file.open(QIODevice::WriteOnly)){if(error)*error=file.errorString();return false;}
   const auto bytes=QJsonDocument(object).toJson(QJsonDocument::Indented);
   if(file.write(bytes)!=bytes.size()||!file.commit()){if(error)*error=file.errorString();return false;}return true;

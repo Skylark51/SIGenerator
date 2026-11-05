@@ -11,6 +11,7 @@
 #include <QSet>
 #include <memory>
 
+struct ProjectState;
 class DocumentPreviewWidget;
 class MoleculeViewWidget;
 class QButtonGroup;
@@ -116,6 +117,9 @@ private:
   void removeSelected();
   void moveSelectedStructure(int targetRow);
   void saveProject();
+  void showProjectHistory();
+  ProjectState captureProjectState() const;
+  void applyProjectState(const QString& path,const ProjectState& state);
   bool saveProjectToPath(const QString& path);
   QString currentProjectPath_, projectName_;
   void openProject();

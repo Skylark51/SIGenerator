@@ -17,6 +17,7 @@ add_library(si_core STATIC
   src/DocumentModel.cpp
   src/StructureLabels.cpp
   src/ProjectStore.cpp
+  src/ProjectHistory.cpp
   src/GaussianSnapshot.cpp
   src/DocxWriter.cpp
   src/XyzWriter.cpp
@@ -36,6 +37,9 @@ target_link_libraries(si_regression PRIVATE si_core)
 if(BUILD_TESTING)
   add_test(NAME gaussian_regression COMMAND si_regression "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures")
   add_test(NAME document_regression COMMAND si_docx_smoke)
+  add_executable(si_history_regression src/history_regression.cpp)
+  target_link_libraries(si_history_regression PRIVATE si_core)
+  add_test(NAME project_history_regression COMMAND si_history_regression)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Concurrent OpenGLWidgets Test)
@@ -46,6 +50,7 @@ qt_add_executable(SIGenerator
   src/MolecularStyle.cpp src/MolecularStyle.hpp
   src/FigureSetupDialog.cpp src/FigureSetupDialog.hpp
   src/ReactionWorkspace.cpp
+  src/ProjectHistoryDialog.cpp
   src/ProjectManagerDialog.cpp src/ProjectManagerDialog.hpp
   src/MainWindow.cpp
   src/MainWindow.hpp
@@ -71,6 +76,7 @@ qt_add_executable(si_ui_smoke
   src/MolecularStyle.cpp src/MolecularStyle.hpp
   src/FigureSetupDialog.cpp src/FigureSetupDialog.hpp
   src/ReactionWorkspace.cpp
+  src/ProjectHistoryDialog.cpp
   src/ProjectManagerDialog.cpp src/ProjectManagerDialog.hpp
   src/MainWindow.cpp src/MainWindow.hpp
   src/MoleculeViewWidget.cpp src/MoleculeViewWidget.hpp
