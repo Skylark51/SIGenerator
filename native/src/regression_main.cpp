@@ -170,20 +170,14 @@ int main(int argc, char** argv) {
   for(const auto [dispersion,complexation]:{std::pair{false,false},std::pair{false,true},std::pair{true,false},std::pair{true,true}}){const auto values=si::legacyRelativeEnergies({sample},reference,dispersion,complexation);ok&=check(values.size()==1&&values[0].kcalTerms[8].has_value(),"relative energy option combination");const auto columns=si::relativeEnergyColumns(dispersion,complexation);ok&=check(columns.size()==static_cast<size_t>(7+(dispersion?1:0)+(complexation?1:0)),"relative table column combination");}
   {
     auto cold=reference,warm=sample;
-    cold.frequency.temperatureKelvin=350.0;
+    cold.frequency.temperatureKelvin.reset();
     warm.frequency.temperatureKelvin=350.0;
-    const auto relative=si::legacyRelativeEnergies({warm},cold,false,false);
-    const double entropyDelta=*warm.frequency.entropy-*cold.frequency.entropy;
-    ok&=check(relative.front().kcalTerms[5]&&std::abs(*relative.front().kcalTerms[5]+350.0*entropyDelta/1000.0)<1e-12,
-              "relative entropy uses the Gaussian temperature");
+    const auto legacy=si::legacyRelativeEnergies({warm},cold,false,false).front().kcalTerms;
     cold.frequency.temperatureKelvin=298.15;
-    const auto mixed=si::legacyRelativeEnergies({warm},cold,false,false);
-    ok&=check(!mixed.front().kcalTerms[5]&&!mixed.front().kcalTerms[8]&&mixed.front().kcalTerms[2],
-              "mixed temperatures withhold entropy and Gibbs differences");
     warm.frequency.temperatureKelvin=298.15;
-    const auto standard=si::legacyRelativeEnergies({warm},cold,false,false);
-    ok&=check(standard.front().kcalTerms[5]&&*standard.front().kcalTerms[5]==-entropyDelta*298.15/1000.0,
-              "298.15 K relative entropy retains the legacy calculation");
+    const auto standard=si::legacyRelativeEnergies({warm},cold,false,false).front().kcalTerms;
+    ok&=check(legacy==standard&&legacy[5]&&std::abs(*legacy[5]+1.49075)<1e-12&&legacy[8],
+              "legacy entropy and Gibbs use 298.15 K with mixed or missing temperature metadata");
   }
   {
     si::GaussianResult primary;
@@ -218,6 +212,7 @@ int main(int argc, char** argv) {
     " Charge = 0 Multiplicity = 3\n"
     " SCF Done: E(UB3LYP) = -100.00000000 A.U.\n"
     " Temperature   298.150 Kelvin.  Pressure 1.00000 Atm.\n"
+    " Rotational temperatures (Kelvin)      0.01234     0.00678     0.00567\n"
     " S**2 before annihilation     2.0123, after     2.0001\n"
     " Frequencies -- -123.45 100.0 200.0\n"
     " Thermal correction to Gibbs Free Energy= 0.02000000\n"

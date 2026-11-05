@@ -1222,8 +1222,10 @@ struct Phase1Smoke {
     window.referencesText_->setPlainText("[1] SI output test reference.");
     window.siOutputPath_->setText(folder.filePath("SI.docx"));window.xyzOutputPath_->setText(folder.filePath("SI.xyz"));
     chooseSiRendering(&window,QMessageBox::YesRole);
+    const int openPromptCount=window.property("siOpenPromptCount").toInt();
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
+    ok&=check(window.property("siOpenPromptCount").toInt()==openPromptCount+1,"successful SI export asks whether to open the DOCX");
     ok&=check(!window.documentModel_.figures.isEmpty(),"rendering opt in retains molecular figures");
     window.captions_->setPlainText("Previously prepared Figure caption");window.refreshDocumentModel();
     window.siOutputPath_->setText(folder.filePath("tables-only.docx"));
@@ -1439,6 +1441,15 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
+  QTimer openDocumentResponder;
+  QObject::connect(&openDocumentResponder,&QTimer::timeout,&app,[]{
+    auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+    if(!box||box->objectName()!="siOpenDocument")return;
+    auto* owner=box->parentWidget();
+    owner->setProperty("siOpenPromptCount",owner->property("siOpenPromptCount").toInt()+1);
+    box->button(QMessageBox::Cancel)->click();
+  });
+  openDocumentResponder.start(20);
   ok&=Phase1Smoke::structureColumnsAndSpeReview(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::localHistory(QString::fromLocal8Bit(argv[1]));
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
