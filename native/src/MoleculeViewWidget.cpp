@@ -115,6 +115,7 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
   painter.setRenderHints(QPainter::Antialiasing|QPainter::TextAntialiasing);
   if(!clean)painter.fillRect(QRect(QPoint(),size),QColor(renderStyle_.value("background").toString("#ffffffff")));
   if(atoms_.empty()){if(!clean){painter.setPen(QColor(105,115,130));painter.drawText(QRect(QPoint(),size),Qt::AlignCenter,tr("Gaussian 파일을 선택하면 분자가 표시됩니다."));}return;}
+  const auto uiFont=painter.font();
   const auto projected=projectedAtoms(size);
   const double unit=std::min(width,height)/500.0;
   painter.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -155,6 +156,7 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
     if(selected&&mode_==InteractionMode::Geometry){painter.setPen(Qt::black);painter.drawText(circle.translated(item.radius,-item.radius),Qt::AlignCenter,QString::number(selectedAtoms_.indexOf(item.index)+1));}
   }
   if(clean)return;
+  painter.setFont(uiFont);
   if(mode_==InteractionMode::SpinDensity&&selectedAtoms_.size()==1){const int id=selectedAtoms_.front();const auto found=std::find_if(projected.begin(),projected.end(),[id](const auto& item){return item.index==id;});if(found!=projected.end()){double spin=0.0;bool hasSpin=false;for(const auto& value:spins_)if(value.atomIndex==id){spin=value.spin;hasSpin=true;break;}const auto& atom=atoms_[static_cast<size_t>(id-1)];const QString basis=QString::fromStdString(spinBasisLevel_)+(spinFallback_?QStringLiteral(" fallback"):QString());const QString text=QStringLiteral("%1(%2)\nSpin: %3\nBasis: %4").arg(QString::fromStdString(atom.symbol)).arg(id).arg(hasSpin?QString::number(spin,'f',3):QStringLiteral("N/A"),basis);QRectF box(found->point+QPointF(18,-62),QSizeF(150,58));if(box.right()>width-8)box.moveRight(width-8);if(box.top()<34)box.moveTop(34);painter.setPen(QPen(QColor(108,126,150),1.2));painter.setBrush(QColor(238,245,255,245));painter.drawRoundedRect(box,8,8);painter.setPen(QColor(42,55,72));painter.drawText(box.adjusted(9,5,-6,-4),Qt::AlignLeft|Qt::AlignVCenter,text);}}
   painter.setPen(QColor(75,85,100));painter.drawText(QRect(10,8,width-20,24),Qt::AlignLeft|Qt::AlignVCenter,mode_==InteractionMode::SpinDensity?tr("스핀 밀도 모드 (Spin Density Mode)"):mode_==InteractionMode::Geometry?tr("선택 구조 모드 (Selected Geometry Mode)"):tr("분자 보기 (Molecular Viewer)"));
 }

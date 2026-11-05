@@ -1,3 +1,4 @@
+#include <QMenu>
 #include "DocumentPreviewWidget.hpp"
 #include "MainWindow.hpp"
 #include "ProjectManagerDialog.hpp"
@@ -421,6 +422,52 @@ struct Phase1Smoke {
     for(int i=0;i<(librarySize+2)/3;++i)next->click();ok&=check(!next->isEnabled()&&cards->count()==(librarySize-1)%3+1,"last project page disables next button");
     previous->click();ok&=check(next->isEnabled(),"previous page restores next navigation");
     prefs.setValue("recentProjects",originalRecent);prefs.remove("pinnedProjects");prefs.remove("favoriteProjects");prefs.remove("projectManagerTheme");
+    return ok;
+  }
+  static bool structureColumnsAndSpeReview(const QString& fixture){
+    MainWindow window;QTemporaryDir folder;bool ok=true;
+    auto* menu=window.findChild<QToolButton*>("structureColumns")->menu();
+    const auto actions=menu->actions();
+    ok&=check(!actions[1]->isChecked()&&actions[3]->isChecked(),"core structure columns shown by default");
+    actions[1]->setChecked(true);
+    {MainWindow restored;auto* restoredMenu=restored.findChild<QToolButton*>("structureColumns")->menu();
+      ok&=check(restoredMenu->actions()[1]->isChecked(),"visible structure columns restored in a new window");}
+    actions[1]->setChecked(false);
+    QFile input(fixture);
+    if(!input.open(QIODevice::ReadOnly))return false;
+    auto primary=input.readAll();
+    auto candidate=primary;candidate.replace("opt freq","sp").replace("def2svp","def2tzvpp");
+    auto wrong=candidate;wrong.replace("0.957200","1.957200");
+    auto write=[&](const QString& name,const QByteArray& content){
+      QFile file(folder.filePath(name));
+      return file.open(QIODevice::WriteOnly)&&file.write(content)==content.size();
+    };
+    if(!write("water-freq.log",primary)||!write("water-spe.log",candidate)||!write("water-sp.out",wrong))return false;
+    const auto path=folder.filePath("water-freq.log");
+    window.parsePaths({path},false,false);
+    if(!waitForImport(window))return false;
+    QTimer timer;
+    QObject::connect(&timer,&QTimer::timeout,&window,[&]{
+      auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      auto* table=dialog?dialog->findChild<QTableWidget*>("speCandidateTable"):nullptr;
+      if(!table)return;
+      timer.stop();
+      int checked=0,disabled=0;
+      for(int row=0;row<table->rowCount();++row){
+        if(table->item(row,0)->checkState()==Qt::Checked)++checked;
+        if(!(table->item(row,0)->flags()&Qt::ItemIsEnabled))++disabled;
+      }
+      ok&=check(table->rowCount()==2&&checked==1&&disabled==1,"SPE review selects only the verified geometry");
+      ok&=check(!window.energyRecords().front().singlePoint,"SPE review has not changed the project before approval");
+      dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    });
+    timer.start(10);
+    window.reviewSinglePoints(folder.path());
+    ok&=check(window.manualPairedPaths_.value(path)==folder.filePath("water-spe.log"),"approved SPE linked and persisted as explicit selection");
+    if(!write("water-freq-bb.log"," #p b3lyp/def2tzvpp sp\n\n Charge = 0 Multiplicity = 1\n SCF Done: E(RB3LYP) = -76.5\n Normal termination of Gaussian 16\n"))return false;
+    window.unlinkSinglePoint();
+    ok&=check(!window.energyRecords().front().singlePoint&&window.files_->item(0,6)->toolTip().contains("최종 구조"),
+              "an incomplete conventional SPE file is reported without using its energy");
     return ok;
   }
   static bool portableProject(const QString& fixture){
@@ -1336,6 +1383,7 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
+  ok&=Phase1Smoke::structureColumnsAndSpeReview(QString::fromLocal8Bit(argv[1]));
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
 
   {

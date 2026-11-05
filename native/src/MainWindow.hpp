@@ -28,6 +28,7 @@ class QSpinBox;
 class QTableWidget;
 class QTextEdit;
 class QTimer;
+class QToolButton;
 class QListWidget;
 class StructureAssignmentTable;
 
@@ -54,6 +55,7 @@ private:
   QWidget* createStageNavigation();
   QWidget* createStructureWorkspace(QWidget* parent);
   void refreshStageNavigation();
+  void configureStructureColumns(QToolButton* button);
   void refreshStageWorkspace();
   void updateStructureStatusCells();
   void refreshScopedPreview();
@@ -89,6 +91,7 @@ private:
   QPushButton* clearStageMembers_{};
   QComboBox* previewScope_{};
   QWidget* stageSettings_{};
+  QToolButton* stageSettingsToggle_{};
   QCheckBox* stageTableChecks_[4]{};
   QPushButton* addExistingStage_{};
   QPushButton* removeStageMember_{};

@@ -201,6 +201,25 @@ MainWindow::MainWindow(){
   scheduleDocumentRefresh();
 }
 
+void MainWindow::configureStructureColumns(QToolButton* button){
+  constexpr int defaultColumns=(1<<1)|(1<<4)|(1<<6);
+  const int visible=windowSettings().value("structureList/visibleColumns",defaultColumns).toInt();
+  auto* menu=new QMenu(button);
+  for(int column=1;column<stageGrid_->columnCount();++column){
+    auto* action=menu->addAction(stageGrid_->horizontalHeaderItem(column)->text());
+    action->setCheckable(true);
+    action->setChecked(visible&(1<<column));
+    stageGrid_->setColumnHidden(column,!action->isChecked());
+    connect(action,&QAction::toggled,this,[this,column](bool checked){
+      stageGrid_->setColumnHidden(column,!checked);
+      int mask=0;
+      for(int i=1;i<stageGrid_->columnCount();++i)if(!stageGrid_->isColumnHidden(i))mask|=1<<i;
+      windowSettings().setValue("structureList/visibleColumns",mask);
+    });
+  }
+  button->setMenu(menu);
+  button->setPopupMode(QToolButton::InstantPopup);
+}
 MainWindow::~MainWindow(){if(importWatcher_)importWatcher_->cancel();auto settings=windowSettings();settings.setValue(QStringLiteral("baseDirectory"),baseDirectory_->text());settings.setValue(QStringLiteral("geometry"),saveGeometry());settings.setValue("documentDraft/referencesText",referencesText_->toPlainText());settings.setValue("documentDraft/computationalDetails",computationalDetails_->toPlainText());settings.setValue("documentDraft/detailsEdited",detailsEdited_);}
 
 void MainWindow::showEvent(QShowEvent* event){
@@ -291,7 +310,7 @@ QWidget* MainWindow::createInputPanel(){
 
     if(auto* box=qobject_cast<QGroupBox*>(group);box&&box->isCheckable())box->setChecked(true);
     auto* scroll=new QScrollArea(inputPages_);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-    auto* page=new QWidget(scroll);auto* pageLayout=new QVBoxLayout(page);pageLayout->setContentsMargins(10,6,10,10);if(group!=filesSection_){auto* scope=new QLabel(tr("SI 전체 공통 설정 · 반응별 구조·기준·표는 구조 화면에서 설정합니다."),page);scope->setWordWrap(true);pageLayout->addWidget(scope);}pageLayout->addWidget(group);pageLayout->addStretch();scroll->setWidget(page);inputPages_->addWidget(scroll);
+    auto* page=new QWidget(scroll);auto* pageLayout=new QVBoxLayout(page);pageLayout->setContentsMargins(10,6,10,10);if(group!=filesSection_){auto* scope=new QLabel(tr("SI 전체 공통 설정 · 반응별 구조·기준·표는 구조 화면에서 설정합니다."),page);scope->setWordWrap(true);pageLayout->addWidget(scope);}pageLayout->addWidget(group,group==filesSection_?1:0);if(group!=filesSection_)pageLayout->addStretch();scroll->setWidget(page);inputPages_->addWidget(scroll);
   }
   inputScroll_=qobject_cast<QScrollArea*>(inputPages_->widget(0));delete content;return inputPages_;
 }
