@@ -86,6 +86,10 @@ int main(int argc,char** argv){
   check(document.contains("w:num=\"3\"")&&document.contains("0.957200")&&document.contains("w:sz w:val=\"12\""),"legacy three-column coordinates and six decimal places");
   check(document.contains("<w:tblHeader/>")&&document.contains("<w:cantSplit/>")&&document.contains("<w:vAlign w:val=\"center\"/>")&&!document.contains("<w:shd"),"table formatting");
   check(document.contains("<w:tblLayout w:type=\"fixed\"/>")&&document.contains("<w:gridCol w:w=\"")&&document.count("<w:noWrap/>")<document.count("<w:tc>"),"fixed page-width grid and selective numeric cell no-wrap");
+  const auto tableStart=document.indexOf("<w:tbl>");
+  const auto tableBody=document.mid(tableStart,document.indexOf("</w:tbl>",tableStart)-tableStart);
+  check(tableBody.count("<w:jc w:val=\"center\"/>")==tableBody.count("<w:tc>")+1,
+        "all Word table cells, including structure names, are centered");
   check(document.contains("w:val=\"subscript\"")&&document.contains("w:val=\"superscript\""),"existing caption markup retained");
   const QByteArray superscript="w:val=\"superscript\"/></w:rPr><w:t xml:space=\"preserve\">5</w:t>";
   const QByteArray subscriptCR="w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">CR</w:t>";
@@ -155,5 +159,15 @@ int main(int argc,char** argv){
     }
   }
   check(!captionXml.hasError()&&numbers==12&&instructions==12,"all twelve table sequence fields have bold instructions and results");
+  si::SIDocumentModel large;
+  large.computationalDetails="Multipage table layout regression.";
+  auto wide=captions.tables[3];wide.caption="Wide relative energy table";wide.rows.clear();
+  for(int i=1;i<=84;++i){
+    QStringList row{QString("Intermediate %1 with a deliberately long structure label").arg(i)};
+    while(row.size()<wide.headers.size())row.append("-1234.56");
+    wide.rows.append(row);
+  }
+  large.tables.append(wide);
+  check(DocxWriter::writeDocument(QDir::current().filePath("wide-table-smoke.docx"),large,&error),"write multipage wide table");
   std::cout<<(ok?"native DOCX smoke: PASS\n":"native DOCX smoke: FAIL\n");return ok?0:1;
 }

@@ -1373,6 +1373,18 @@ bool figureWorkflowSmoke(){
   si::SIDocumentModel model;model.figures=figures;model.coordinates=structures;model.computationalDetails="Geometry optimizations and vibrational frequency calculations were performed using the calculation methods reported in the source files [1].";model.referencesText="[1] Test reference supplied for output verification.";
   for(const auto section:{si::DocumentSection::AbsoluteEnergy,si::DocumentSection::RelativeEnergy,si::DocumentSection::SpinDensity,si::DocumentSection::SelectedGeometry})model.tables.append({section,QString("Section %1").arg(int(section)),{"Structure","Value"},{{"Structure 1","0.000"}},{}});
   const auto output=QDir::current().filePath("si-figures-current-smoke.docx");ok&=check(DocxWriter::writeDocument(output,model,&error),"DOCX with embedded rendered molecule Figures");
+  {
+    auto structure=structures.front();
+    structure.structureName="An intentionally long molecular structure name to exercise wrapping at a constant size";
+    FigureSetupDialog single({structure},{paths.front()},{});
+    single.findChild<QPushButton*>("nextFigureGroup")->click();
+    si::SIDocumentModel singleDocument;singleDocument.figures=single.figures();
+    ok&=check(singleDocument.figures.size()==1&&singleDocument.figures.front().pixelWidth==1200&&
+              singleDocument.figures.front().pixelHeight>figures.front().pixelHeight,
+              "long label wraps and grows the image without changing tile resolution");
+    ok&=check(DocxWriter::writeDocument(QDir::current().filePath("single-figure-smoke.docx"),singleDocument,&error),
+              "single Figure with long label exports");
+  }
   QFile docx(output);ok&=check(docx.open(QIODevice::ReadOnly),"read molecular DOCX");const auto bytes=docx.readAll();
   ok&=check(bytes.contains("word/media/figure1.png")&&bytes.contains("r:embed=\"rIdFigure3\"")&&bytes.contains("image/png"),"embedded media parts and DrawingML references");
   if(qEnvironmentVariableIsSet("SI_FIGURE_SAMPLE_DIR")){const auto directory=qEnvironmentVariable("SI_FIGURE_SAMPLE_DIR");QDir().mkpath(directory);const auto image=QImage::fromData(figures[0].png);image.save(directory+"/figure.png");QImage white(image.size(),QImage::Format_RGB32);white.fill(Qt::white);QPainter painter(&white);painter.drawImage(0,0,image);painter.end();white.save(directory+"/figure-white.png");}
