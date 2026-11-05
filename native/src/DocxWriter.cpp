@@ -35,8 +35,8 @@ QString styledRuns(const QString& text,bool bold=false,int halfPoints=20) {
   return output.isEmpty()?run(QString(),bold,halfPoints):output;
 }
 
-QString paragraph(const QString& text,bool bold=false,int halfPoints=20,const QString& align=QStringLiteral("left"),int before=0,int after=0,const QString& style=QStringLiteral("Normal")) {
-  return QStringLiteral("<w:p><w:pPr><w:pStyle w:val=\"%5\"/><w:jc w:val=\"%1\"/><w:spacing w:before=\"%2\" w:after=\"%3\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%4</w:p>").arg(align).arg(before).arg(after).arg(styledRuns(text,bold,halfPoints),style);
+QString paragraph(const QString& text,bool bold=false,int halfPoints=20,const QString& align=QStringLiteral("left"),int before=0,int after=0,const QString& style=QStringLiteral("Normal"),const QString& properties={}) {
+  return QStringLiteral("<w:p><w:pPr><w:pStyle w:val=\"%5\"/>%6<w:jc w:val=\"%1\"/><w:spacing w:before=\"%2\" w:after=\"%3\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%4</w:p>").arg(align).arg(before).arg(after).arg(styledRuns(text,bold,halfPoints),style,properties);
 }
 
 QString field(const QString& instruction,const QString& placeholder,bool bold=false) {
@@ -44,21 +44,21 @@ QString field(const QString& instruction,const QString& placeholder,bool bold=fa
   return QStringLiteral("<w:r>%3<w:fldChar w:fldCharType=\"begin\" w:dirty=\"true\"/></w:r><w:r>%3<w:instrText xml:space=\"preserve\"> %1 </w:instrText></w:r><w:r>%3<w:fldChar w:fldCharType=\"separate\"/></w:r>%2<w:r>%3<w:fldChar w:fldCharType=\"end\"/></w:r>").arg(xml(instruction),run(placeholder,bold),properties);
 }
 
-QString sequenceCaption(const QString& label,const QString& sequence,int number,const QString& title) {
+QString sequenceCaption(const QString& label,const QString& sequence,int number,const QString& title,bool keepNext=false) {
   // CHARFORMAT takes its format from the first instruction character.
   // Bold both the SEQ instruction and its cached result so Word field
   // updates keep every digit of Table S10, S11, ... bold as well.
-  return QStringLiteral("<w:p><w:pPr><w:pStyle w:val=\"Caption\"/><w:outlineLvl w:val=\"1\"/><w:jc w:val=\"left\"/><w:spacing w:before=\"120\" w:after=\"40\"/></w:pPr>%1%2%3%4</w:p>")
-    .arg(run(label,true),field(QStringLiteral("SEQ %1 \\* ARABIC \\* CHARFORMAT").arg(sequence),QString::number(number),true),run(QStringLiteral(". "),true),styledRuns(title));
+  return QStringLiteral("<w:p><w:pPr><w:pStyle w:val=\"Caption\"/>%5<w:keepLines/><w:spacing w:before=\"45\" w:after=\"125\"/><w:jc w:val=\"left\"/><w:outlineLvl w:val=\"1\"/></w:pPr>%1%2%3%4</w:p>")
+    .arg(run(label,true),field(QStringLiteral("SEQ %1 \\* ARABIC \\* CHARFORMAT").arg(sequence),QString::number(number),true),run(QStringLiteral(". "),true),styledRuns(title),keepNext?QStringLiteral("<w:keepNext/>"):QString());
 }
 
-QString cell(const QString& value,bool bold,bool header=false,bool first=false,int halfPoints=18,int widthTwips=0) {
+QString cell(const QString& value,bool bold,bool header=false,bool first=false,int halfPoints=18,int widthTwips=0,bool keepNext=false) {
   QString text=value;text.replace(QRegularExpression(QStringLiteral("[\\r\\n\\x{2028}\\x{2029}]+")),QStringLiteral(" "));
   if(first&&!header)text=si::structureLabelMarkup(text);
-  const QString noWrap=(!header&&!first)?QStringLiteral("<w:noWrap/>"):QString();
+  const QString keep=keepNext?QStringLiteral("<w:keepNext/>"):QString();
   const QString rule=header?QStringLiteral("<w:tcBorders><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/></w:tcBorders>"):QString();
-  return QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%3\" w:type=\"dxa\"/>%1%4<w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%2</w:p></w:tc>")
-    .arg(rule,styledRuns(text,bold,halfPoints)).arg(widthTwips).arg(noWrap);
+  return QStringLiteral("<w:tc><w:tcPr><w:tcW w:w=\"%3\" w:type=\"dxa\"/>%1<w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr>%4<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"210\" w:lineRule=\"auto\"/><w:jc w:val=\"center\"/></w:pPr>%2</w:p></w:tc>")
+    .arg(rule,styledRuns(text,bold,halfPoints)).arg(widthTwips).arg(keep);
 }
 
 QString tableXml(const si::DocumentTable& source) {
@@ -67,7 +67,7 @@ QString tableXml(const si::DocumentTable& source) {
   const int halfPoints=source.section==si::DocumentSection::RelativeEnergy&&columnCount>8?16:18;
   // US Letter, 1-inch side margins: 9360 twips available for the body.
   constexpr int usableWidth=9360;
-  const int labelWidth=columnCount==1?usableWidth:(columnCount>=9?1800:columnCount>=7?2100:2700);
+  const int labelWidth=columnCount==1?usableWidth:(columnCount>=9?2200:columnCount>=7?2350:2700);
   QVector<int> widths(columnCount);
   if(columnCount==1)widths[0]=usableWidth;
   else {
@@ -76,29 +76,43 @@ QString tableXml(const si::DocumentTable& source) {
     for(int column=1;column<columnCount;++column)widths[column]=numericWidth;
     widths.back()+=usableWidth-labelWidth-numericWidth*(columnCount-1);
   }
-  QString table=QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"5000\" w:type=\"pct\"/><w:jc w:val=\"center\"/><w:tblBorders><w:top w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:left w:val=\"nil\"/><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:right w:val=\"nil\"/><w:insideH w:val=\"nil\"/><w:insideV w:val=\"nil\"/></w:tblBorders><w:tblLayout w:type=\"fixed\"/><w:tblCellMar><w:left w:w=\"40\" w:type=\"dxa\"/><w:right w:w=\"40\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr><w:tblGrid>");
-  // Let Word size columns from their contents, then fit the table to the page.
-  // Equal preferred cell widths can wrap long headers despite noWrap.
+  QString table=QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"9360\" w:type=\"dxa\"/><w:jc w:val=\"center\"/><w:tblBorders><w:top w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:left w:val=\"nil\"/><w:bottom w:val=\"single\" w:sz=\"6\" w:color=\"000000\"/><w:right w:val=\"nil\"/><w:insideH w:val=\"nil\"/><w:insideV w:val=\"nil\"/></w:tblBorders><w:tblLayout w:type=\"fixed\"/><w:tblCellMar><w:top w:w=\"18\" w:type=\"dxa\"/><w:left w:w=\"40\" w:type=\"dxa\"/><w:bottom w:w=\"18\" w:type=\"dxa\"/><w:right w:w=\"40\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr><w:tblGrid>");
   for(int column=0;column<columnCount;++column)table+=QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(widths[column]);
   table+=QStringLiteral("</w:tblGrid><w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>");
-  for(int column=0;column<columnCount;++column)table+=cell(source.headers[column],true,true,false,halfPoints,widths[column]);
+  for(int column=0;column<columnCount;++column)table+=cell(source.headers[column],true,true,false,halfPoints,widths[column],true);
   table+=QStringLiteral("</w:tr>");
-  for(const auto& row:source.rows){
+  for(qsizetype i=0;i<source.rows.size();++i){
+    const auto& row=source.rows[i];
     table+=QStringLiteral("<w:tr><w:trPr><w:cantSplit/></w:trPr>");
-    for(int column=0;column<columnCount;++column)table+=cell(column<row.size()?row[column]:QStringLiteral("N/A"),column==0||source.boldColumns.contains(column),false,column==0,halfPoints,widths[column]);
+    for(int column=0;column<columnCount;++column)table+=cell(column<row.size()?row[column]:QStringLiteral("N/A"),column==0||source.boldColumns.contains(column),false,column==0,halfPoints,widths[column],i==source.rows.size()-1);
     table+=QStringLiteral("</w:tr>");
   }
-  return paragraph(QString())+table+QStringLiteral("</w:tbl>")+paragraph(QString());
+  return table+QStringLiteral("</w:tbl>");
 }
 
-QString coordinateBody(const si::SIDocumentModel& model,int halfPoints=18) {
+int coordinateFieldWidth(const si::SIDocumentModel& model){
+  const int digits=model.precisionOverride>0?model.precisionOverride:6;
+  int longest=0;
+  for(const auto& block:model.coordinates)for(const auto& atom:block.atoms)
+    for(double coordinate:atom.xyz)longest=std::max(longest,int(QString::number(coordinate,'f',digits).size()));
+  return std::max(620,60*longest+100);
+}
+
+QString coordinateBody(const si::SIDocumentModel& model,int numericWidth) {
+  constexpr int halfPoints=12;
   QString body;
   const int digits=model.precisionOverride>0?model.precisionOverride:6;
+  const auto tabs=QStringLiteral("<w:tabs><w:tab w:val=\"right\" w:pos=\"%1\"/><w:tab w:val=\"right\" w:pos=\"%2\"/><w:tab w:val=\"right\" w:pos=\"%3\"/></w:tabs>")
+    .arg(180+numericWidth).arg(180+2*numericWidth).arg(180+3*numericWidth);
   for(const auto& block:model.coordinates){
-    body+=QStringLiteral("<w:p><w:pPr><w:keepNext/><w:spacing w:before=\"120\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%1</w:p>").arg(styledRuns(si::structureLabelMarkup(block.structureName),true,halfPoints));
+    body+=QStringLiteral("<w:p><w:pPr><w:keepNext/><w:spacing w:before=\"65\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>%1</w:p>").arg(styledRuns(si::structureLabelMarkup(block.structureName),true,halfPoints));
     for(const auto& atom:block.atoms){
-      const QString value=QStringLiteral("%1    %2    %3    %4").arg(QString::fromStdString(atom.symbol),-2).arg(atom.xyz[0],12,'f',digits).arg(atom.xyz[1],12,'f',digits).arg(atom.xyz[2],12,'f',digits);
-      body+=paragraph(value,false,halfPoints);
+      QString atoms=run(QString::fromStdString(atom.symbol),false,halfPoints);
+      for(double coordinate:atom.xyz){
+        atoms+=QStringLiteral("<w:r><w:tab/></w:r>");
+        atoms+=run(QString::number(coordinate,'f',digits),false,halfPoints);
+      }
+      body+=QStringLiteral("<w:p><w:pPr>%1<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"220\" w:lineRule=\"auto\"/></w:pPr>%2</w:p>").arg(tabs,atoms);
     }
   }
   return body;
@@ -131,7 +145,10 @@ bool writePackage(const QString& path,const QString& document,QString* error,con
 }
 
 bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& model,QString* error) {
-  auto heading=[](const QString& text){return paragraph(text,true,24,"left",120,60,"Heading1");};
+  auto heading=[](const QString& text,bool newPage=false){
+    return paragraph(text,true,24,"left",120,60,"Heading1",
+      newPage?QStringLiteral("<w:keepNext/><w:pageBreakBefore/>"):QStringLiteral("<w:keepNext/>"));
+  };
   const QString pageBreak=QStringLiteral("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
   QString body=heading("Computational Details");
   for(const auto& text:{model.manuscriptTitle,model.authors,model.affiliations,model.correspondingEmail})
@@ -139,7 +156,9 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
   const auto details=si::computationalDetailsBody(model.computationalDetails);
   if(!details.isEmpty())body+=paragraph(details);
   if(!model.referencesText.trimmed().isEmpty())body+=heading("References")+paragraph(model.referencesText);
-  body+=pageBreak;
+  const bool hasFrontMatter=!details.isEmpty()||!model.referencesText.trimmed().isEmpty()||
+    !model.manuscriptTitle.trimmed().isEmpty()||!model.authors.trimmed().isEmpty()||
+    !model.affiliations.trimmed().isEmpty()||!model.correspondingEmail.trimmed().isEmpty();
   for(const auto& figure:model.figures)if(figure.png.isEmpty()||figure.pixelWidth<=0||figure.pixelHeight<=0){if(error)*error="Invalid molecular figure image.";return false;}
   int figureNumber=0;
   const int figureCount=std::max(model.figures.size(),model.figureCaptions.size());
@@ -147,7 +166,9 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
     if(i<model.figures.size()){
       const auto& figure=model.figures[i];
 
-      const qint64 cx=5943600,cy=cx*figure.pixelHeight/figure.pixelWidth;
+      const qint64 preferredWidth=5943600*std::clamp(figure.pageWidthFraction,0.1,1.0);
+      const qint64 cx=std::min(preferredWidth,qint64(6858000)*figure.pixelWidth/figure.pixelHeight);
+      const qint64 cy=cx*figure.pixelHeight/figure.pixelWidth;
       body+=QStringLiteral("<w:p><w:pPr><w:keepNext/><w:jc w:val=\"center\"/></w:pPr><w:r><w:drawing>"
         "<wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">"
         "<wp:extent cx=\"%1\" cy=\"%2\"/><wp:docPr id=\"%3\" name=\"Figure S%3\" descr=\"%4\"/>"
@@ -164,13 +185,16 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
   ;int tableNumber=0;
   auto writeTable=[&](const si::DocumentTable& table){if(table.section==si::DocumentSection::Validation||table.headers.isEmpty())return;
     const auto section=table.section;
-      body+=tableXml(table)+sequenceCaption("Table S","Table_S",++tableNumber,table.caption);
+      body+=tableXml(table)+sequenceCaption("Table S","Table_S",++tableNumber,table.caption,section==si::DocumentSection::RelativeEnergy);
       if(section==si::DocumentSection::RelativeEnergy){
+        auto footnote=[&](const QString& text){
+          return paragraph(text,false,16,"left",0,0,"Normal","<w:keepNext/><w:keepLines/>");
+        };
         if(table.headers.contains(QStringLiteral("ΔΔE^{a}")))
-          body+=paragraph("^{a} Def2-TZVPP electronic energy = sum of the two previous columns.",false,16);
+          body+=footnote("^{a} Def2-TZVPP electronic energy = sum of the two previous columns.");
         if(table.headers.contains(QStringLiteral("ΔΔE_{Thermal}^{b}"))||table.headers.contains(QStringLiteral("-TΔS^{b}")))
-          body+=paragraph("^{b} T = 298.15 K.",false,16);
-        if(const auto note=si::relativeGibbsFootnote(table);!note.isEmpty())body+=paragraph(QStringLiteral("^{c} ")+note,false,16);
+          body+=footnote(QStringLiteral("^{b} ")+(table.thermochemistryNote.isEmpty()?QStringLiteral("T = 298.15 K."):table.thermochemistryNote));
+        if(const auto note=si::relativeGibbsFootnote(table);!note.isEmpty())body+=footnote(QStringLiteral("^{c} ")+note);
         QString basis=QStringLiteral("current/default behavior");
         const QString basisMarker=QStringLiteral("Energy basis: ");
         const int basisPosition=table.caption.indexOf(basisMarker);
@@ -179,10 +203,15 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
           if(basis.endsWith('.'))basis.chop(1);
         }
         body+=paragraph(QStringLiteral("Relative energies were calculated with respect to the selected reference. Energy basis: %1. Conversion factor: 1 Hartree = %2 kcal mol^{-1}.")
-          .arg(basis,QString::number(si::HartreeToKcal,'f',6)),false,18,"left",80,0);
+          .arg(basis,QString::number(si::HartreeToKcal,'f',6)),false,18,"left",80,100,"Normal","<w:keepLines/>");
       }
   }
   ;
+  const bool hasMainContent=figureCount>0||!model.stageOrder.isEmpty()||
+    std::any_of(model.tables.begin(),model.tables.end(),[](const auto& table){
+      return table.section!=si::DocumentSection::Validation&&!table.headers.isEmpty();
+    });
+  if(hasMainContent&&hasFrontMatter)body+=pageBreak;
   if(model.stageOrder.isEmpty()){for(int i=0;i<figureCount;++i)writeFigure(i);for(const auto& table:model.tables)writeTable(table);}
   else {
     for(int i=0;i<figureCount;++i)if(i>=model.figures.size()||model.figures[i].stageId.isEmpty())writeFigure(i);
@@ -191,17 +220,19 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
   }
   QString finalSection=normalSection();
   if(!model.coordinates.isEmpty()){
-    body+=pageBreak+heading("Cartesian Coordinates");
+    body+=heading("Cartesian Coordinates",hasMainContent||hasFrontMatter);
     body+=QStringLiteral("<w:p><w:pPr>%1</w:pPr></w:p>").arg(normalSection());
-    body+=coordinateBody(model,12);
+    const int fieldWidth=coordinateFieldWidth(model);
+    const int columns=std::clamp(9720/(540+3*fieldWidth),1,3);
+    body+=coordinateBody(model,fieldWidth);
     finalSection.replace(QStringLiteral("<w:pgSz"),QStringLiteral("<w:type w:val=\"continuous\"/><w:pgSz"));
-    finalSection.replace(QStringLiteral("</w:sectPr>"),QStringLiteral("<w:cols w:num=\"3\" w:space=\"360\"/></w:sectPr>"));
+    finalSection.replace(QStringLiteral("</w:sectPr>"),QStringLiteral("<w:cols w:num=\"%1\" w:space=\"360\"/></w:sectPr>").arg(columns));
   }
   return writePackage(path,envelope(body,finalSection),error,model.figures);
 }
 
 bool DocxWriter::writeCoordinates(const QString& path,const si::SIDocumentModel& model,QString* error){
-  return writePackage(path,envelope(paragraph("Coordinates",true,24,"left",0,60,"Heading1")+coordinateBody(model),normalSection()),error);
+  return writePackage(path,envelope(paragraph("Coordinates",true,24,"left",0,60,"Heading1")+coordinateBody(model,coordinateFieldWidth(model)),normalSection()),error);
 }
 bool DocxWriter::write(const QString& path,const QString& title,const QStringList& headers,const QVector<QStringList>& rows,QString* error){si::SIDocumentModel model;model.title=title;model.tables.append({si::DocumentSection::Other,QString(),headers,rows,{}});return writeDocument(path,model,error);}
 bool DocxWriter::writeTables(const QString& path,const QString& title,const QVector<Table>& tables,QString* error){si::SIDocumentModel model;model.title=title;for(const auto& table:tables)model.tables.append({si::DocumentSection::Other,table.title,table.headers,table.rows,{}});return writeDocument(path,model,error);}

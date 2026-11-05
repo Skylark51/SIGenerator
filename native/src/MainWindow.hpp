@@ -8,8 +8,10 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QMainWindow>
+#include <QSet>
 #include <memory>
 
+struct ProjectState;
 class DocumentPreviewWidget;
 class MoleculeViewWidget;
 class QButtonGroup;
@@ -27,6 +29,7 @@ class QSpinBox;
 class QTableWidget;
 class QTextEdit;
 class QTimer;
+class QToolButton;
 class QListWidget;
 class StructureAssignmentTable;
 
@@ -53,6 +56,7 @@ private:
   QWidget* createStageNavigation();
   QWidget* createStructureWorkspace(QWidget* parent);
   void refreshStageNavigation();
+  void configureStructureColumns(QToolButton* button);
   void refreshStageWorkspace();
   void updateStructureStatusCells();
   void refreshScopedPreview();
@@ -88,6 +92,7 @@ private:
   QPushButton* clearStageMembers_{};
   QComboBox* previewScope_{};
   QWidget* stageSettings_{};
+  QToolButton* stageSettingsToggle_{};
   QCheckBox* stageTableChecks_[4]{};
   QPushButton* addExistingStage_{};
   QPushButton* removeStageMember_{};
@@ -98,6 +103,10 @@ private:
   void connectPreviewInputs();
   void chooseFiles();
   void linkSinglePoint();
+  void reviewSinglePoints(const QString& selectedFolder={});
+  bool useSinglePoint(const QString& source,const si::GaussianResult& primary,const si::GaussianResult& spe) const;
+  void applySinglePoint(const QString& source,const QString& path,const si::GaussianResult& primary,
+                        const std::shared_ptr<const si::GaussianResult>& candidate);
   void unlinkSinglePoint();
   void chooseDirectory();
   void addNamedFiles(bool replace=false);
@@ -108,6 +117,9 @@ private:
   void removeSelected();
   void moveSelectedStructure(int targetRow);
   void saveProject();
+  void showProjectHistory();
+  ProjectState captureProjectState() const;
+  void applyProjectState(const QString& path,const ProjectState& state);
   bool saveProjectToPath(const QString& path);
   QString currentProjectPath_, projectName_;
   void openProject();
@@ -201,8 +213,9 @@ private:
   DocumentPreviewWidget* preview_{};
   QTimer* previewTimer_{};
   si::SIDocumentModel documentModel_;
-  std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>()};
+  std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>(false)};
   QHash<QString,QString> pairedPaths_;
+  QSet<QString> restoredSpeLinks_;
   QHash<QString,QString> manualPairedPaths_;
   QHash<QString,std::shared_ptr<const si::GaussianResult>> parsed_;
   QStringList pendingStructureLabels_;

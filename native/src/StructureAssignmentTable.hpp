@@ -19,7 +19,8 @@ public:
     const auto rect=style->subElementRect(QStyle::SE_ItemViewItemText,&opt,opt.widget);
     opt.text.clear();style->drawControl(QStyle::CE_ItemViewItem,&opt,painter,opt.widget);
     QTextDocument doc;doc.setDocumentMargin(0);doc.setDefaultFont(opt.font);
-    const auto color=opt.palette.color(opt.state&QStyle::State_Selected?QPalette::HighlightedText:QPalette::Text);
+    const bool focusedSelection=(opt.state&QStyle::State_Selected)&&opt.widget&&opt.widget->hasFocus();
+    const auto color=opt.palette.color(focusedSelection?QPalette::HighlightedText:QPalette::Text);
     doc.setHtml("<span style='white-space:nowrap;color:"+color.name()+"'>"+si::formattedTextHtml(si::structureLabelMarkup(text))+"</span>");
     painter->save();painter->setClipRect(rect);painter->translate(rect.left()+3,rect.top()+std::max(0.0,(rect.height()-doc.size().height())/2));doc.drawContents(painter);painter->restore();
   }

@@ -1,3 +1,5 @@
+#include "ProjectHistory.hpp"
+#include <QMenu>
 #include "DocumentPreviewWidget.hpp"
 #include "MainWindow.hpp"
 #include "ProjectManagerDialog.hpp"
@@ -423,15 +425,110 @@ struct Phase1Smoke {
     prefs.setValue("recentProjects",originalRecent);prefs.remove("pinnedProjects");prefs.remove("favoriteProjects");prefs.remove("projectManagerTheme");
     return ok;
   }
+  static bool structureColumnsAndSpeReview(const QString& fixture){
+    MainWindow window;QTemporaryDir folder;bool ok=true;
+    auto* menu=window.findChild<QToolButton*>("structureColumns")->menu();
+    const auto actions=menu->actions();
+    ok&=check(!actions[1]->isChecked()&&actions[3]->isChecked(),"core structure columns shown by default");
+    actions[1]->setChecked(true);
+    {MainWindow restored;auto* restoredMenu=restored.findChild<QToolButton*>("structureColumns")->menu();
+      ok&=check(restoredMenu->actions()[1]->isChecked(),"visible structure columns restored in a new window");}
+    actions[1]->setChecked(false);
+    QFile input(fixture);
+    if(!input.open(QIODevice::ReadOnly))return false;
+    auto primary=input.readAll();
+    auto candidate=primary;candidate.replace("opt freq","sp").replace("def2svp","def2tzvpp");
+    auto wrong=candidate;wrong.replace("0.957200","1.957200");
+    auto write=[&](const QString& name,const QByteArray& content){
+      QFile file(folder.filePath(name));
+      return file.open(QIODevice::WriteOnly)&&file.write(content)==content.size();
+    };
+    if(!write("water-freq.log",primary)||!write("water-spe.log",candidate)||!write("water-sp.out",wrong))return false;
+    const auto path=folder.filePath("water-freq.log");
+    window.parsePaths({path},false,false);
+    if(!waitForImport(window))return false;
+    QTimer timer;
+    QObject::connect(&timer,&QTimer::timeout,&window,[&]{
+      auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      auto* table=dialog?dialog->findChild<QTableWidget*>("speCandidateTable"):nullptr;
+      if(!table)return;
+      timer.stop();
+      int checked=0,disabled=0;
+      for(int row=0;row<table->rowCount();++row){
+        if(table->item(row,0)->checkState()==Qt::Checked)++checked;
+        if(!(table->item(row,0)->flags()&Qt::ItemIsEnabled))++disabled;
+      }
+      ok&=check(table->rowCount()==2&&checked==1&&disabled==1,"SPE review selects only the verified geometry");
+      ok&=check(!window.energyRecords().front().singlePoint,"SPE review has not changed the project before approval");
+      dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();
+    });
+    timer.start(10);
+    window.reviewSinglePoints(folder.path());
+    ok&=check(window.manualPairedPaths_.value(path)==folder.filePath("water-spe.log"),"approved SPE linked and persisted as explicit selection");
+    if(!write("water-freq-bb.log"," #p b3lyp/def2tzvpp sp\n\n Charge = 0 Multiplicity = 1\n SCF Done: E(RB3LYP) = -76.5\n Normal termination of Gaussian 16\n"))return false;
+    window.unlinkSinglePoint();
+    ok&=check(!window.energyRecords().front().singlePoint&&window.files_->item(0,6)->toolTip().contains("최종 구조"),
+              "an incomplete conventional SPE file is reported without using its energy");
+    return ok;
+  }
+  static bool localHistory(const QString& fixture){
+    QTemporaryDir folder;
+    MainWindow window;
+    const auto path=folder.filePath("work.si_project.json");
+    window.parsePaths({fixture},false,false);
+    if(!waitForImport(window)||!window.saveProjectToPath(path))return false;
+    const auto original=window.structureLabels().front();
+    const ProjectHistory history(path);
+    QString error;
+    if(!history.record(ProjectStore::serialize(path,window.captureProjectState()),"Original",&error))return false;
+    window.files_->item(0,0)->setText("Unsaved rename");
+    bool compared=false;
+    QTimer::singleShot(0,&window,[&]{
+      auto* dialog=window.findChild<QDialog*>("projectHistoryDialog");
+      if(!dialog)return;
+      auto* changes=dialog->findChild<QTableWidget*>("projectChanges");
+      for(int row=0;row<changes->rowCount();++row)
+        if(changes->item(row,0)->text()=="Structure renamed"&&changes->item(row,3)->text()=="Unsaved rename")compared=true;
+      QTimer::singleShot(0,dialog,[]{
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))box->button(QMessageBox::Yes)->click();
+      });
+      dialog->findChild<QPushButton*>("restoreProjectVersion")->click();
+      if(dialog->isVisible())dialog->reject();
+    });
+    window.showProjectHistory();
+    if(!waitForImport(window))return false;
+    QVector<ProjectVersion> versions;
+    if(!check(compared&&window.structureLabels()==QStringList{original}&&
+              history.list(&versions,&error)&&versions.size()==2,
+              "history dialog compares unsaved edits and restores through the normal project editor"))return false;
+    const auto basis=window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::DefaultComposite));
+    if(basis<0)return false;
+    window.energyBasis_->setCurrentIndex(basis);
+    window.siOutputPath_->setText(folder.filePath("history.docx"));
+    window.xyzOutputPath_->setText(folder.filePath("history.xyz"));
+    chooseSiRendering(&window,QMessageBox::NoRole);
+    window.exportSiDocument();
+    if(!waitUntil([&]{return !window.generationRunning_;}))return false;
+    return check(QFileInfo::exists(folder.filePath("history.docx"))&&QFileInfo::exists(folder.filePath("history.xyz"))&&
+                 history.list(&versions,&error)&&versions.size()==3&&versions.front().message.contains("history.docx"),
+                 "successful SI export records its project snapshot");
+
+  }
   static bool portableProject(const QString& fixture){
     MainWindow source;QTemporaryDir temp;bool ok=true;
     const auto primary=temp.filePath("1-H2O-freq.log");
     const auto singlePoint=temp.filePath("1-H2O-freq-bb.log");
     ok&=check(QFile::copy(fixture,primary),"portable project input fixture copied");
+    QFile original(primary);
+    if(!original.open(QIODevice::ReadOnly))return false;
+    auto speOutput=original.readAll();
+    speOutput.replace("b3lyp/def2svp opt freq","ub3lyp/def2tzvpp sp")
+      .replace("E(RB3LYP)","E(UB3LYP)").replace("-76.4000000000","-76.5000000000");
+    speOutput.truncate(speOutput.indexOf(" Mulliken charges"));
+    speOutput.append(" Normal termination of Gaussian 16\n");
+    original.close();
     QFile spe(singlePoint);
-    if(!spe.open(QIODevice::WriteOnly))return false;
-    spe.write("#p b3lyp/def2tzvpp sp\n Charge = 0 Multiplicity = 1\n"
-              " SCF Done: E(RB3LYP) = -76.500000 A.U.\n Normal termination of Gaussian 16\n");
+    if(!spe.open(QIODevice::WriteOnly)||spe.write(speOutput)!=speOutput.size())return false;
     spe.close();
     source.parsePaths({primary},false,false);
     if(!waitForImport(source))return false;
@@ -1013,7 +1110,9 @@ struct Phase1Smoke {
     ok&=check(waitUntil([&]{return !window.parsing_&&window.files_->rowCount()==3;}),"explicit file drop with folder: six paired files plus orphan produce three records");
     window.refreshDocumentModel();
     ok&=check(window.files_->columnCount()==7&&window.reference_->count()==3,"preflight columns and reference dropdown");
-    for(int row=0;row<window.files_->rowCount();++row)ok&=check(window.files_->item(row,6)->text()=="Ready","complete pair Ready");
+    for(int row=0;row<window.files_->rowCount();++row)
+      ok&=check(window.files_->item(row,6)->text()=="Warning"&&window.files_->item(row,6)->toolTip().contains("multiplicity differs")&&
+                window.files_->item(row,3)->text()=="✓","verified SPE remains linked while mixed multiplicities are flagged");
     const auto records=window.energyRecords();
     ok&=check(records.size()==3&&records.front().singlePoint&&records.front().frequency.spinDensities.front().spin==0.8&&records.front().frequency.finalGeometry.front().xyz[0]==1.234567,"SPE energy/spin and primary geometry roles");
     ok&=check(!window.documentModel_.table(si::DocumentSection::Validation),"legacy SI excludes validation table");
@@ -1155,7 +1254,7 @@ struct Phase1Smoke {
     auto bad=fixture(0,false);bad.replace(" Frequencies -- 50.0"," Frequencies -- -50.0 -60.0");
     write("mismatch-freq.out",bad);auto mismatch=fixture(0,true);mismatch.replace("Charge = 0 Multiplicity = 1","Charge = 1 Multiplicity = 3");write("mismatch-freq-bb.out",mismatch);
     window.parsePaths({folder.filePath("mismatch-freq.out")});ok&=check(waitUntil([&]{return !window.parsing_;}),"mismatch import");window.refreshDocumentModel();
-    ok&=check(window.files_->item(0,6)->text()=="Warning"&&window.files_->item(0,6)->toolTip().contains("charge mismatch")&&window.files_->item(0,6)->toolTip().contains("multiplicity mismatch")&&window.files_->item(0,6)->toolTip().contains("2+ imaginary"),"pair mismatch and imaginary warnings");
+    ok&=check(window.files_->item(0,6)->text()=="Warning"&&window.files_->item(0,6)->toolTip().contains("전하 불일치")&&window.files_->item(0,6)->toolTip().contains("Multiplicity 불일치")&&window.files_->item(0,6)->toolTip().contains("2+ imaginary"),"pair mismatch and imaginary warnings");
 
     write("broken-freq.out","not a Gaussian output\n");window.parsePaths({folder.filePath("broken-freq.out")});
     ok&=check(waitUntil([&]{return !window.parsing_;}),"invalid input import");window.refreshDocumentModel();
@@ -1318,6 +1417,18 @@ bool figureWorkflowSmoke(){
   si::SIDocumentModel model;model.figures=figures;model.coordinates=structures;model.computationalDetails="Geometry optimizations and vibrational frequency calculations were performed using the calculation methods reported in the source files [1].";model.referencesText="[1] Test reference supplied for output verification.";
   for(const auto section:{si::DocumentSection::AbsoluteEnergy,si::DocumentSection::RelativeEnergy,si::DocumentSection::SpinDensity,si::DocumentSection::SelectedGeometry})model.tables.append({section,QString("Section %1").arg(int(section)),{"Structure","Value"},{{"Structure 1","0.000"}},{}});
   const auto output=QDir::current().filePath("si-figures-current-smoke.docx");ok&=check(DocxWriter::writeDocument(output,model,&error),"DOCX with embedded rendered molecule Figures");
+  {
+    auto structure=structures.front();
+    structure.structureName="An intentionally long molecular structure name to exercise wrapping at a constant size";
+    FigureSetupDialog single({structure},{paths.front()},{});
+    single.findChild<QPushButton*>("nextFigureGroup")->click();
+    si::SIDocumentModel singleDocument;singleDocument.figures=single.figures();
+    ok&=check(singleDocument.figures.size()==1&&singleDocument.figures.front().pixelWidth==1200&&
+              singleDocument.figures.front().pixelHeight>figures.front().pixelHeight,
+              "long label wraps and grows the image without changing tile resolution");
+    ok&=check(DocxWriter::writeDocument(QDir::current().filePath("single-figure-smoke.docx"),singleDocument,&error),
+              "single Figure with long label exports");
+  }
   QFile docx(output);ok&=check(docx.open(QIODevice::ReadOnly),"read molecular DOCX");const auto bytes=docx.readAll();
   ok&=check(bytes.contains("word/media/figure1.png")&&bytes.contains("r:embed=\"rIdFigure3\"")&&bytes.contains("image/png"),"embedded media parts and DrawingML references");
   if(qEnvironmentVariableIsSet("SI_FIGURE_SAMPLE_DIR")){const auto directory=qEnvironmentVariable("SI_FIGURE_SAMPLE_DIR");QDir().mkpath(directory);const auto image=QImage::fromData(figures[0].png);image.save(directory+"/figure.png");QImage white(image.size(),QImage::Format_RGB32);white.fill(Qt::white);QPainter painter(&white);painter.drawImage(0,0,image);painter.end();white.save(directory+"/figure-white.png");}
@@ -1328,6 +1439,8 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
+  ok&=Phase1Smoke::structureColumnsAndSpeReview(QString::fromLocal8Bit(argv[1]));
+  ok&=Phase1Smoke::localHistory(QString::fromLocal8Bit(argv[1]));
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
 
   {

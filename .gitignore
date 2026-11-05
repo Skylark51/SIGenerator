@@ -42,3 +42,6 @@ __pycache__/
 # Versioned Windows distributions
 /dist/
 /SI-Generator-Windows-x64.zip
+
+# Local SI project version histories
+*.json.history/

@@ -3,6 +3,9 @@
 #include "MolecularStyle.hpp"
 #include "si/StructureLabels.hpp"
 #include <QTextDocument>
+#include <QTextOption>
+#include <QtMath>
+#include <memory>
 #include <QAbstractTextDocumentLayout>
 #include <QBuffer>
 #include <QCheckBox>
@@ -310,8 +313,31 @@ void FigureSetupDialog::finish(){
     const int count=rows_[group].size();
     if(count<=0)continue;
     const int reference=group==0&&count==3?1:0;
-    QImage image(QSize(1200*count,1100),QImage::Format_ARGB32_Premultiplied);image.fill(Qt::transparent);QPainter painter(&image);
+    constexpr int tileWidth=1200;
+    constexpr int labelMargin=30;
+    constexpr int labelGap=24;
+    constexpr int moleculeHeight=1000;
+    std::vector<std::unique_ptr<QTextDocument>> labels;
+    double labelHeight=0;
     si::DocumentFigure figure;
+    figure.pageWidthFraction=count/3.0;
+    for(int index:rows_[group]){
+      const auto label=si::structureLabelMarkup(structures_[index].structureName);
+      auto text=std::make_unique<QTextDocument>();
+      text->setDocumentMargin(0);
+      QFont font("Times New Roman");font.setPixelSize(66);
+      text->setDefaultFont(font);
+      QTextOption wrap;wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+      text->setDefaultTextOption(wrap);
+      text->setTextWidth(tileWidth-2*labelMargin);
+      text->setHtml(QStringLiteral("<p style='margin:0;text-align:center;color:black'>%1</p>").arg(si::formattedTextHtml(label)));
+      labelHeight=std::max(labelHeight,text->size().height());
+      labels.push_back(std::move(text));
+      figure.structureNames.append(label);
+    }
+    QImage image(QSize(tileWidth*count,moleculeHeight+2*labelGap+qCeil(labelHeight)),QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter painter(&image);
     for(int i=0;i<count;++i){
       const int index=rows_[group][i];auto atoms=structures_[index].atoms;
       if(i!=reference)alignTo(atoms,structures_[rows_[group][reference]].atoms);
@@ -319,16 +345,11 @@ void FigureSetupDialog::finish(){
       view.setHydrogenVisibility(hideHydrogens_->isChecked(),retainedHydrogens_.value(paths_[index],0));
       const auto slotKey=QStringLiteral("row:%1:%2").arg(group).arg(i);
       view.setCameraState(customRows_&&views_.contains(slotKey)?views_.value(slotKey).toObject():views_.value(paths_[index]).toObject());
-      painter.drawImage(i*1200,0,view.renderMolecule());
-      const auto label=si::structureLabelMarkup(structures_[index].structureName);
-      QTextDocument text;text.setDocumentMargin(0);text.setTextWidth(1160);
-      int pixels=42;
-      do {QFont font("Times New Roman");font.setPixelSize(pixels);text.setDefaultFont(font);
-        text.setHtml(QStringLiteral("<p style='margin:0;text-align:center;color:black'>%1</p>").arg(si::formattedTextHtml(label)));
-        if(text.size().height()<=90||pixels<=18)break;pixels-=2;
-      }while(true);
-      painter.save();painter.translate(i*1200+20,1005+(90-text.size().height())/2);text.drawContents(&painter,QRectF(0,0,1160,90));painter.restore();
-      figure.structureNames.append(label);
+      painter.drawImage(i*tileWidth,0,view.renderMolecule(QSize(tileWidth,moleculeHeight)));
+      painter.save();
+      painter.translate(i*tileWidth+labelMargin,moleculeHeight+labelGap);
+      labels[i]->drawContents(&painter);
+      painter.restore();
     }
     painter.end();image.setDotsPerMeterX(23622);image.setDotsPerMeterY(23622);QBuffer buffer(&figure.png);buffer.open(QIODevice::WriteOnly);image.save(&buffer,"PNG");
     figure.pixelWidth=image.width();figure.pixelHeight=image.height();figures_.append(figure);

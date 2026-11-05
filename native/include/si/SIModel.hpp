@@ -7,6 +7,13 @@
 #include <vector>
 
 namespace si {
+enum class SpeMatch { Verified, MissingData, MissingConditions, Atoms, Charge, Multiplicity, Geometry };
+SpeMatch validateSpe(const GaussianResult& primary,const GaussianResult& spe);
+bool compatibleSpe(SpeMatch match);
+inline double thermochemistryTemperature(const GaussianResult& result){
+  return result.temperatureKelvin.value_or(298.15);
+}
+
 inline constexpr double HartreeToKcal = 627.509474;
 enum class EnergyBasis { DefaultComposite, Electronic, ElectronicZpe, Enthalpy, Gibbs, LegacyComposite };
 struct EnergyRecord { std::string name; GaussianResult frequency; std::optional<GaussianResult> singlePoint; std::optional<double> selectedHartree; std::string label; std::optional<double> complexationKcal; };

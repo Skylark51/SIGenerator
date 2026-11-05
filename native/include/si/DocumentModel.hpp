@@ -29,6 +29,7 @@ struct DocumentTable {
   QString stageId;
   int documentNumber{};
   bool hasManualRelativeValues{false};
+  QString thermochemistryNote;
 };
 
 struct CoordinateBlock {
@@ -44,6 +45,7 @@ struct DocumentFigure {
   int pixelWidth{}, pixelHeight{};
   QString stageId;
   int documentNumber{};
+  double pageWidthFraction{1.0};
 };
 
 struct SIDocumentModel {
@@ -68,6 +70,7 @@ struct SIDocumentModel {
 [[nodiscard]] QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBasis basis, QStringList* warnings=nullptr);
 [[nodiscard]] DocumentTable validationTable(const std::vector<EnergyRecord>& records);
 [[nodiscard]] QString displayMechanism(const SIDocumentModel& model);
+[[nodiscard]] QString relativeTemperatureNote(const std::vector<EnergyRecord>& records);
 [[nodiscard]] QString relativeGibbsFootnote(const DocumentTable& table);
 [[nodiscard]] QString computationalDetailsBody(QString text);
 [[nodiscard]] QString formatNumber(double value, int defaultDigits, int precisionOverride);
