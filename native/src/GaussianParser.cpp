@@ -1,4 +1,5 @@
 #include "si/GaussianParser.hpp"
+#include "si/SIModel.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -188,7 +189,7 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
   // Only paired spin data may replace primary data. Geometry and thermochemistry stay primary.
   if(const auto candidate=includePairedSpin?pairedSinglePointPath(path):std::filesystem::path{};!candidate.empty()){
     const auto highBasis=parse(candidate);
-    if(highBasis.success&&!highBasis.spinDensities.empty()){
+    if(const auto match=validateSpe(result,highBasis);highBasis.success&&!highBasis.spinDensities.empty()&&(compatibleSpe(match)||match==SpeMatch::MissingData)){
       result.spinDensities=highBasis.spinDensities;result.spinSourcePath=candidate;
       result.spinBasisLevel=highBasis.basisLevel;result.spinFallback=false;
     }
@@ -198,7 +199,7 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
 
 std::shared_ptr<const GaussianResult> GaussianCache::get(const std::filesystem::path& source) {
   const auto path = std::filesystem::absolute(source); const auto size = std::filesystem::file_size(path); const auto modified = std::filesystem::last_write_time(path);
-  const auto paired=pairedSinglePointPath(path);
+  const auto paired=includePairedSpin_?pairedSinglePointPath(path):std::filesystem::path{};
   const auto pairedSize=paired.empty()?0:std::filesystem::file_size(paired);
   const auto pairedModified=paired.empty()?std::filesystem::file_time_type{}:std::filesystem::last_write_time(paired);
   { std::lock_guard lock(mutex_);
@@ -208,7 +209,7 @@ std::shared_ptr<const GaussianResult> GaussianCache::get(const std::filesystem::
   auto result = std::make_shared<GaussianResult>(parser_.parse(path,false));
   if(!paired.empty()){
     const auto highBasis=get(paired);
-    if(highBasis->success&&!highBasis->spinDensities.empty()){
+    if(const auto match=validateSpe(*result,*highBasis);highBasis->success&&!highBasis->spinDensities.empty()&&(compatibleSpe(match)||match==SpeMatch::MissingData)){
       result->spinDensities=highBasis->spinDensities;result->spinSourcePath=paired;
       result->spinBasisLevel=highBasis->basisLevel;result->spinFallback=false;
     }

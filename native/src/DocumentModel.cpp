@@ -54,17 +54,36 @@ QString formatNumber(const std::optional<double>& value, int defaultDigits, int 
 }
 
 
+QString relativeTemperatureNote(const std::vector<EnergyRecord>& records){
+  if(records.empty())return {};
+  const double temperature=thermochemistryTemperature(records.front().frequency);
+  if(std::any_of(records.begin(),records.end(),[temperature](const auto& record){
+    return thermochemistryTemperature(record.frequency)!=temperature;
+  }))return QStringLiteral("T is taken from each frequency calculation. Entropy and Gibbs energy differences require the same temperature.");
+  auto printed=QString::number(temperature,'f',3);
+  if(printed.endsWith('0'))printed.chop(1);
+  return QStringLiteral("T = %1 K.").arg(printed);
+}
+
 QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBasis basis, QStringList* warnings) {
   if(records.empty())return {};
   QStringList sentences;
   auto uniform=[&](const std::vector<const GaussianResult*>& sources,auto getter,const QString& label){
     QSet<QString> values;bool missing=false;
-    for(const auto* source:sources){const auto value=getter(*source);if(value.isEmpty())missing=true;else values.insert(value);}
+    QString first;
+    for(const auto* source:sources){
+      const auto value=getter(*source);
+      if(value.isEmpty())missing=true;
+      else {
+        if(first.isEmpty())first=value;
+        values.insert(value.toCaseFolded());
+      }
+    }
     if(values.size()>1||(missing&&!values.isEmpty())){
       if(warnings)warnings->append(label+" differs between structures or is incompletely reported");
       return QString();
     }
-    return !missing&&values.size()==1?*values.begin():QString();
+    return !missing&&values.size()==1?first:QString();
   };
   std::vector<const GaussianResult*> freq,spe;
   for(const auto& record:records){freq.push_back(&record.frequency);if(record.singlePoint&&record.singlePoint->scfEnergy)spe.push_back(&*record.singlePoint);}
@@ -103,12 +122,23 @@ QString computationalDetails(const std::vector<EnergyRecord>& records, EnergyBas
   if(zero+one+many)sentences.append(QString("Frequency analysis found %1 structures with zero, %2 with one, and %3 with two or more imaginary frequencies.").arg(zero).arg(one).arg(many));
   if(missing)sentences.append(QString("Frequency data were unavailable for %1 structures.").arg(missing));
   const auto temperature=uniform(freq,[](const GaussianResult& r){return r.temperatureKelvin?QString::number(*r.temperatureKelvin,'g',12):QString();},"Temperature");
+  if(warnings){
+    auto report=[&](const auto& sources,const QString& prefix){
+      const auto integer=[](std::optional<int> value){return value?QString::number(*value):QString();};
+      (void)uniform(sources,[&](const auto& r){return integer(r.charge);},prefix+" charge");
+      (void)uniform(sources,[&](const auto& r){return integer(r.multiplicity);},prefix+" multiplicity");
+    };
+    report(freq,"Primary");
+    report(spe,"SPE");
+    if(std::any_of(freq.begin(),freq.end(),[](const auto* r){return r->entropy&&!r->temperatureKelvin;}))
+      warnings->append("Temperature missing: legacy entropy calculation assumes 298.15 K");
+  }
   if(!temperature.isEmpty()&&allFreq)sentences.append("Thermal corrections were obtained from the frequency calculations at "+temperature+" K.");
   if(basis==EnergyBasis::DefaultComposite||basis==EnergyBasis::Gibbs){
     sentences.append("Composite Gibbs free energies were calculated as E_SPE + (G_freq − E_freq), where E_freq and G_freq are the SCF energy and the sum of electronic and thermal free energies from the frequency calculation. Reported dispersion energies were not added again.");
     if(spe.size()!=records.size())sentences.append("For structures without a paired SPE energy, G_freq was used.");
   }else if(basis==EnergyBasis::LegacyComposite){
-    sentences.append("Relative energies were assembled using the original SI component formulas: electronic energy differences plus ZPE, additional thermal, entropy, and included correction terms (T = 298.15 K).");
+    sentences.append("Relative energies were assembled using the original SI component formulas: electronic energy differences plus ZPE, additional thermal, entropy, and included correction terms. "+relativeTemperatureNote(records));
   }else if(basis==EnergyBasis::Electronic)sentences.append("Relative energies were calculated from electronic energies, using paired SPE energies where available.");
   else if(basis==EnergyBasis::ElectronicZpe)sentences.append("Relative energies include the electronic energy and the frequency calculation's zero-point correction.");
   else if(basis==EnergyBasis::Enthalpy)sentences.append("Enthalpies were obtained from the primary calculation, with E_SPE − E_freq added where a paired SPE energy was available.");

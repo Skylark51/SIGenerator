@@ -428,10 +428,16 @@ struct Phase1Smoke {
     const auto primary=temp.filePath("1-H2O-freq.log");
     const auto singlePoint=temp.filePath("1-H2O-freq-bb.log");
     ok&=check(QFile::copy(fixture,primary),"portable project input fixture copied");
+    QFile original(primary);
+    if(!original.open(QIODevice::ReadOnly))return false;
+    auto speOutput=original.readAll();
+    speOutput.replace("b3lyp/def2svp opt freq","ub3lyp/def2tzvpp sp")
+      .replace("E(RB3LYP)","E(UB3LYP)").replace("-76.4000000000","-76.5000000000");
+    speOutput.truncate(speOutput.indexOf(" Mulliken charges"));
+    speOutput.append(" Normal termination of Gaussian 16\n");
+    original.close();
     QFile spe(singlePoint);
-    if(!spe.open(QIODevice::WriteOnly))return false;
-    spe.write("#p b3lyp/def2tzvpp sp\n Charge = 0 Multiplicity = 1\n"
-              " SCF Done: E(RB3LYP) = -76.500000 A.U.\n Normal termination of Gaussian 16\n");
+    if(!spe.open(QIODevice::WriteOnly)||spe.write(speOutput)!=speOutput.size())return false;
     spe.close();
     source.parsePaths({primary},false,false);
     if(!waitForImport(source))return false;
@@ -1013,7 +1019,9 @@ struct Phase1Smoke {
     ok&=check(waitUntil([&]{return !window.parsing_&&window.files_->rowCount()==3;}),"explicit file drop with folder: six paired files plus orphan produce three records");
     window.refreshDocumentModel();
     ok&=check(window.files_->columnCount()==7&&window.reference_->count()==3,"preflight columns and reference dropdown");
-    for(int row=0;row<window.files_->rowCount();++row)ok&=check(window.files_->item(row,6)->text()=="Ready","complete pair Ready");
+    for(int row=0;row<window.files_->rowCount();++row)
+      ok&=check(window.files_->item(row,6)->text()=="Warning"&&window.files_->item(row,6)->toolTip().contains("multiplicity differs")&&
+                window.files_->item(row,3)->text()=="✓","verified SPE remains linked while mixed multiplicities are flagged");
     const auto records=window.energyRecords();
     ok&=check(records.size()==3&&records.front().singlePoint&&records.front().frequency.spinDensities.front().spin==0.8&&records.front().frequency.finalGeometry.front().xyz[0]==1.234567,"SPE energy/spin and primary geometry roles");
     ok&=check(!window.documentModel_.table(si::DocumentSection::Validation),"legacy SI excludes validation table");
@@ -1155,7 +1163,7 @@ struct Phase1Smoke {
     auto bad=fixture(0,false);bad.replace(" Frequencies -- 50.0"," Frequencies -- -50.0 -60.0");
     write("mismatch-freq.out",bad);auto mismatch=fixture(0,true);mismatch.replace("Charge = 0 Multiplicity = 1","Charge = 1 Multiplicity = 3");write("mismatch-freq-bb.out",mismatch);
     window.parsePaths({folder.filePath("mismatch-freq.out")});ok&=check(waitUntil([&]{return !window.parsing_;}),"mismatch import");window.refreshDocumentModel();
-    ok&=check(window.files_->item(0,6)->text()=="Warning"&&window.files_->item(0,6)->toolTip().contains("charge mismatch")&&window.files_->item(0,6)->toolTip().contains("multiplicity mismatch")&&window.files_->item(0,6)->toolTip().contains("2+ imaginary"),"pair mismatch and imaginary warnings");
+    ok&=check(window.files_->item(0,6)->text()=="Warning"&&window.files_->item(0,6)->toolTip().contains("전하 불일치")&&window.files_->item(0,6)->toolTip().contains("Multiplicity 불일치")&&window.files_->item(0,6)->toolTip().contains("2+ imaginary"),"pair mismatch and imaginary warnings");
 
     write("broken-freq.out","not a Gaussian output\n");window.parsePaths({folder.filePath("broken-freq.out")});
     ok&=check(waitUntil([&]{return !window.parsing_;}),"invalid input import");window.refreshDocumentModel();

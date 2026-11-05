@@ -51,10 +51,12 @@ public:
 
 class GaussianCache {
 public:
+  explicit GaussianCache(bool includePairedSpin=true):includePairedSpin_(includePairedSpin){}
   [[nodiscard]] std::shared_ptr<const GaussianResult> get(const std::filesystem::path& path);
   void clear();
 private:
   struct Entry { std::uintmax_t size{}; std::filesystem::file_time_type modified{}; std::shared_ptr<GaussianResult> result; std::filesystem::path pairedPath; std::uintmax_t pairedSize{}; std::filesystem::file_time_type pairedModified{}; };
+  const bool includePairedSpin_;
   GaussianParser parser_;
   std::mutex mutex_;
   std::unordered_map<std::filesystem::path, Entry> entries_;

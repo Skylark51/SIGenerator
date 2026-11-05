@@ -121,6 +121,8 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   auto* formatRow=new QHBoxLayout;for(const auto& marker:QStringList{"^","_"}){auto* button=new QPushButton(marker=="^"?tr("위첨자 x²"):tr("아래첨자 x₂"),box);button->setFocusPolicy(Qt::NoFocus);formatRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,marker]{const int start=stageLabelEdit_->selectionStart();if(start<0){status_->setText(tr("구조명에서 첨자로 만들 글자를 선택하세요."));return;}const int length=stageLabelEdit_->selectedText().size();auto text=stageLabelEdit_->text();text.replace(start,length,marker+"{"+stageLabelEdit_->selectedText()+"}");stageLabelEdit_->setText(text);if(stageGrid_->currentRow()>=0)stageGrid_->item(stageGrid_->currentRow(),0)->setText(text);stageLabelEdit_->setFocus();stageLabelEdit_->setSelection(start+2,length);});}formatRow->addStretch();auto* details=new QPushButton(tr("추출 정보 보기…"),box);details->setObjectName("showExtractionDetails");formatRow->addWidget(details);connect(details,&QPushButton::clicked,this,&MainWindow::showExtractionDetails);
   layout->addLayout(formatRow);
   auto* pairingRow=new QHBoxLayout;
+  auto* review=new QPushButton(tr("SPE 후보 찾기…"),box);review->setObjectName("reviewSinglePoints");
+  pairingRow->addWidget(review);connect(review,&QPushButton::clicked,this,[this]{reviewSinglePoints();});
   auto* pair=new QPushButton(tr("SPE Output 연결…"),box);pair->setObjectName("linkSinglePointButton");
   pairingRow->addWidget(pair);connect(pair,&QPushButton::clicked,this,&MainWindow::linkSinglePoint);
   auto* unpair=new QPushButton(tr("SPE 수동 연결 해제"),box);unpair->setObjectName("unlinkSinglePointButton");

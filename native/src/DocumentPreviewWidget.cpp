@@ -52,7 +52,7 @@ QString tableHtml(const si::DocumentTable& table,int index,bool includeCaption=t
   html+=QStringLiteral("<p><b>Table S%1.</b> %2</p>").arg(table.documentNumber>0?table.documentNumber:index+1).arg(styled(table.caption));
   if(table.section==si::DocumentSection::RelativeEnergy){
     if(table.headers.contains(QStringLiteral("ΔΔE^{a}")))html+=QStringLiteral("<div><sup>a</sup> Def2-TZVPP electronic energy = sum of the two previous columns.</div>");
-    if(table.headers.contains(QStringLiteral("ΔΔE_{Thermal}^{b}"))||table.headers.contains(QStringLiteral("-TΔS^{b}")))html+=QStringLiteral("<div><sup>b</sup> T = 298.15 K.</div>");
+    if(table.headers.contains(QStringLiteral("ΔΔE_{Thermal}^{b}"))||table.headers.contains(QStringLiteral("-TΔS^{b}")))html+=QStringLiteral("<div><sup>b</sup> %1</div>").arg(table.thermochemistryNote.isEmpty()?QStringLiteral("T = 298.15 K."):table.thermochemistryNote.toHtmlEscaped());
     if(const auto note=si::relativeGibbsFootnote(table);!note.isEmpty())html+=QStringLiteral("<div><sup>c</sup> %1</div>").arg(styled(note));
   }
   return html;

@@ -169,7 +169,7 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
         if(table.headers.contains(QStringLiteral("ΔΔE^{a}")))
           body+=paragraph("^{a} Def2-TZVPP electronic energy = sum of the two previous columns.",false,16);
         if(table.headers.contains(QStringLiteral("ΔΔE_{Thermal}^{b}"))||table.headers.contains(QStringLiteral("-TΔS^{b}")))
-          body+=paragraph("^{b} T = 298.15 K.",false,16);
+          body+=paragraph(QStringLiteral("^{b} ")+(table.thermochemistryNote.isEmpty()?QStringLiteral("T = 298.15 K."):table.thermochemistryNote),false,16);
         if(const auto note=si::relativeGibbsFootnote(table);!note.isEmpty())body+=paragraph(QStringLiteral("^{c} ")+note,false,16);
         QString basis=QStringLiteral("current/default behavior");
         const QString basisMarker=QStringLiteral("Energy basis: ");

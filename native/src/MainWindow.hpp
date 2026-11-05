@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QMainWindow>
+#include <QSet>
 #include <memory>
 
 class DocumentPreviewWidget;
@@ -98,6 +99,10 @@ private:
   void connectPreviewInputs();
   void chooseFiles();
   void linkSinglePoint();
+  void reviewSinglePoints(const QString& selectedFolder={});
+  bool useSinglePoint(const QString& source,const si::GaussianResult& primary,const si::GaussianResult& spe) const;
+  void applySinglePoint(const QString& source,const QString& path,const si::GaussianResult& primary,
+                        const std::shared_ptr<const si::GaussianResult>& candidate);
   void unlinkSinglePoint();
   void chooseDirectory();
   void addNamedFiles(bool replace=false);
@@ -201,8 +206,9 @@ private:
   DocumentPreviewWidget* preview_{};
   QTimer* previewTimer_{};
   si::SIDocumentModel documentModel_;
-  std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>()};
+  std::shared_ptr<si::GaussianCache> cache_{std::make_shared<si::GaussianCache>(false)};
   QHash<QString,QString> pairedPaths_;
+  QSet<QString> restoredSpeLinks_;
   QHash<QString,QString> manualPairedPaths_;
   QHash<QString,std::shared_ptr<const si::GaussianResult>> parsed_;
   QStringList pendingStructureLabels_;

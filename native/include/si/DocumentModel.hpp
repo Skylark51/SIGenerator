@@ -29,6 +29,7 @@ struct DocumentTable {
   QString stageId;
   int documentNumber{};
   bool hasManualRelativeValues{false};
+  QString thermochemistryNote;
 };
 
 struct CoordinateBlock {

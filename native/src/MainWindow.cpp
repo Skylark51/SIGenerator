@@ -48,6 +48,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QProgressDialog>
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSettings>
@@ -108,6 +109,44 @@ QString number(const std::optional<double>& value,int digits,int precision){retu
 QString manualNumber(const QString& value,int){bool ok=false;const double parsed=value.toDouble(&ok);return ok?si::formatNumber(parsed,2,0):value;}
 void filterRelativeTable(si::DocumentTable& table,bool dispersion,bool complexation){const auto columns=si::relativeEnergyColumns(dispersion,complexation);QStringList headers;QVector<QStringList> rows;for(int logical:columns)headers.append(table.headers[logical+1]);for(const auto& source:table.rows){QStringList row{source.value(0)};for(int logical:columns)row.append(source.value(logical+1));rows.append(row);}table.headers=QStringList{QString()}+headers;table.rows=rows;table.boldColumns.clear();for(int i=0;i<table.headers.size();++i)if(table.headers[i]==QStringLiteral("E_{Total}")||table.headers[i]==QStringLiteral("ΔG^{c}"))table.boldColumns.append(i);}
 QString pairedSinglePointPath(const QString& frequencyPath){return QString::fromStdWString(si::pairedSinglePointPath(std::filesystem::path(frequencyPath.toStdWString())).wstring());}
+QString speMatchMessage(si::SpeMatch match){
+  switch(match){
+  case si::SpeMatch::Verified:return QObject::tr("구조·전하·multiplicity 일치");
+  case si::SpeMatch::MissingData:return QObject::tr("최종 구조 또는 SCF 에너지 확인 불가");
+  case si::SpeMatch::MissingConditions:return QObject::tr("전하 또는 multiplicity 확인 불가");
+  case si::SpeMatch::Atoms:return QObject::tr("원자 수 또는 원소 순서 불일치");
+  case si::SpeMatch::Charge:return QObject::tr("전하 불일치");
+  case si::SpeMatch::Multiplicity:return QObject::tr("Multiplicity 불일치");
+  case si::SpeMatch::Geometry:return QObject::tr("회전·이동 정렬 후 좌표 불일치");
+  }
+  return {};
+}
+bool legacySpeAllowed(si::SpeMatch match){
+  return si::compatibleSpe(match)||match==si::SpeMatch::MissingData;
+}
+bool verifiedAutomaticSpe(si::SpeMatch match,const si::GaussianResult& spe){
+  return match==si::SpeMatch::Verified&&spe.normalTermination&&!spe.method.empty()&&!spe.basis.empty();
+}
+std::shared_ptr<const si::GaussianResult> withSpeSpin(const std::shared_ptr<const si::GaussianResult>& primary,
+                                                     const si::GaussianResult& spe){
+  if(spe.spinDensities.empty())return primary;
+  auto combined=std::make_shared<si::GaussianResult>(*primary);
+  combined->spinDensities=spe.spinDensities;
+  combined->spinBasisLevel=spe.basisLevel;
+  combined->spinSourcePath=spe.path;
+  combined->spinFallback=false;
+  return combined;
+}
+QString speSearchKey(const QString& path){
+  static const QRegularExpression suffix(R"((?:[-_](?:sp|spe|single[-_]?point|bb|opt|freq|(?:def2[-_]?)?(?:tzvpp|svp)))+$)");
+  return QFileInfo(path).completeBaseName().toLower().remove(suffix);
+}
+struct SpeCandidate{
+  QString source, path;
+  std::shared_ptr<const si::GaussianResult> result;
+  si::SpeMatch match;
+  bool eligible;
+};
 QString namedFilePath(const QDir& base,const QString& name,QString* problem=nullptr){
   QString path=base.filePath(name);const auto suffix=QFileInfo(name).suffix();
   if(suffix.compare("out",Qt::CaseInsensitive)!=0&&suffix.compare("log",Qt::CaseInsensitive)!=0){
@@ -350,43 +389,149 @@ void MainWindow::linkSinglePoint(){
   si::GaussianParser parser;
   const auto primary=parser.parse(std::filesystem::path(source.toStdWString()),false);
   const auto candidate=parser.parse(std::filesystem::path(selection.toStdWString()),false);
-  if(!primary.success||!candidate.success||!candidate.scfEnergy||primary.finalGeometry.empty()||candidate.finalGeometry.empty()){
-    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("두 파일 모두 Gaussian 최종 구조가 필요하며 SPE에는 SCF 에너지가 있어야 합니다."));return;
-  }
-  bool valid=primary.finalGeometry.size()==candidate.finalGeometry.size();
-  if(valid)for(size_t i=0;i<primary.finalGeometry.size();++i)
-    if(primary.finalGeometry[i].atomicNumber!=candidate.finalGeometry[i].atomicNumber){valid=false;break;}
-  if(primary.charge&&candidate.charge&&primary.charge!=candidate.charge)valid=false;
-  if(primary.multiplicity&&candidate.multiplicity&&primary.multiplicity!=candidate.multiplicity)valid=false;
-  if(!valid){
-    QMessageBox::warning(this,tr("SPE 연결 실패"),tr("원자 수·원소 순서·전하 또는 multiplicity가 일치하지 않습니다."));return;
+  const auto match=si::validateSpe(primary,candidate);
+  if(!si::compatibleSpe(match)||QFileInfo(source)==QFileInfo(selection)){
+    QMessageBox::warning(this,tr("SPE 연결 실패"),QFileInfo(source)==QFileInfo(selection)
+      ?tr("같은 파일을 SPE로 연결할 수 없습니다."):speMatchMessage(match));
+    return;
   }
   const QString details=tr("파일: %1\nMethod: %2\nBasis: %3\nCharge: %4\nMultiplicity: %5\nSCF energy: %6 Hartree\n\n선택 구조와 연결하시겠습니까?")
     .arg(QFileInfo(selection).fileName(),QString::fromStdString(candidate.method),QString::fromStdString(candidate.basis))
     .arg(candidate.charge?QString::number(*candidate.charge):QStringLiteral("N/A"))
     .arg(candidate.multiplicity?QString::number(*candidate.multiplicity):QStringLiteral("N/A"))
     .arg(*candidate.scfEnergy,0,'f',9);
-  if(QMessageBox::question(this,tr("SPE 연결 확인"),details)!=QMessageBox::Yes)return;
-  auto combined=std::make_shared<si::GaussianResult>(primary);
-  if(!candidate.spinDensities.empty()){
-    combined->spinDensities=candidate.spinDensities;
-    combined->spinBasisLevel=candidate.basisLevel;
-    combined->spinSourcePath=std::filesystem::path(selection.toStdWString());
-    combined->spinFallback=false;
-  }
-  const QString absolute=QFileInfo(selection).absoluteFilePath();
-  manualPairedPaths_.insert(source,absolute);pairedPaths_.insert(source,absolute);
-  parsed_.insert(source,combined);parsed_.insert(absolute,std::make_shared<si::GaussianResult>(candidate));
+  if(QMessageBox::question(this,tr("SPE 연결 확인"),details+"\n"+speMatchMessage(match))!=QMessageBox::Yes)return;
+  const auto absolute=QFileInfo(selection).absoluteFilePath();
+  applySinglePoint(source,absolute,primary,std::make_shared<si::GaussianResult>(candidate));
   selectStructure();refreshDocumentModel();
   status_->setText(tr("SPE 수동 연결됨: %1").arg(absolute));
+}
+void MainWindow::applySinglePoint(const QString& source,const QString& path,const si::GaussianResult& primary,
+                                  const std::shared_ptr<const si::GaussianResult>& candidate){
+  auto base=std::make_shared<const si::GaussianResult>(primary);
+  if(candidate->spinDensities.empty()&&primary.spinSourcePath!=primary.path&&QFileInfo(source).isFile()){
+    try{base=cache_->get(source.toStdWString());}
+    catch(const std::exception&){/* Keep the primary snapshot if the source disappeared. */}
+  }
+  manualPairedPaths_.insert(source,path);
+  pairedPaths_.insert(source,path);
+  parsed_.insert(source,withSpeSpin(base,*candidate));
+  parsed_.insert(path,candidate);
+}
+void MainWindow::reviewSinglePoints(const QString& selectedFolder){
+  if(parsing_||files_->rowCount()==0)return;
+  const auto paths=sourcePaths();
+  const auto folder=selectedFolder.isEmpty()?QFileDialog::getExistingDirectory(this,tr("SPE 후보 폴더"),QFileInfo(paths.first()).absolutePath()):selectedFolder;
+  if(folder.isEmpty())return;
+  QHash<QString,QStringList> byName;
+  for(const auto& path:paths){
+    if(manualPairedPaths_.contains(path))continue;
+    const auto primary=parsed_.value(path);
+    const auto current=parsed_.value(pairedPaths_.value(path));
+    if(!primary||!primary->success||(current&&useSinglePoint(path,*primary,*current)))continue;
+    byName[speSearchKey(path)].append(path);
+  }
+  QProgressDialog progress(tr("Gaussian SPE 후보 확인 중…"),QString(),0,0,this);
+  progress.setCancelButtonText(tr("취소"));
+  progress.setWindowModality(Qt::WindowModal);
+  QFutureWatcher<QVector<SpeCandidate>> watcher;
+  connect(&watcher,&QFutureWatcherBase::finished,&progress,&QProgressDialog::accept);
+  watcher.setFuture(QtConcurrent::run([folder,paths,byName,parsed=parsed_](QPromise<QVector<SpeCandidate>>& promise){
+    QVector<SpeCandidate> candidates;
+    const auto outputs=QDir(folder).entryInfoList({"*.out","*.log"},QDir::Files);
+    for(const auto& output:outputs){
+      if(promise.isCanceled())return;
+      const auto path=output.absoluteFilePath();
+      const auto matches=byName.value(speSearchKey(path));
+      if(matches.isEmpty()||paths.contains(path,Qt::CaseInsensitive))continue;
+      auto result=std::make_shared<si::GaussianResult>(si::GaussianParser{}.parse(path.toStdWString(),false));
+      for(const auto& source:matches){
+        const auto match=si::validateSpe(*parsed.value(source),*result);
+        const bool eligible=verifiedAutomaticSpe(match,*result)&&result->jobTypes.size()==1&&result->jobTypes.front()=="single_point";
+        candidates.append({source,path,result,match,eligible});
+      }
+    }
+    promise.addResult(std::move(candidates));
+  }));
+  if(!watcher.isFinished()&&progress.exec()!=QDialog::Accepted){
+    watcher.cancel();
+    return;
+  }
+  const auto candidates=watcher.result();
+  if(candidates.isEmpty()){
+    status_->setText(tr("선택한 폴더에 이름이 일치하는 미연결 SPE 후보가 없습니다."));
+    return;
+  }
+  QDialog dialog(this);dialog.setWindowTitle(tr("SPE 후보 검토"));dialog.resize(850,400);
+  auto* layout=new QVBoxLayout(&dialog);
+  auto* explanation=new QLabel(tr("검증을 통과한 후보를 선택한 뒤 승인하세요. 구조당 파일 하나만 선택할 수 있습니다."),&dialog);
+  explanation->setWordWrap(true);layout->addWidget(explanation);
+  auto* table=new QTableWidget(candidates.size(),5,&dialog);
+  table->setObjectName("speCandidateTable");
+  table->setHorizontalHeaderLabels({tr("승인"),tr("구조 파일"),tr("SPE 파일"),tr("Method / Basis"),tr("검증")});
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setStretchLastSection(true);
+  QHash<QString,int> sourceCounts,pathCounts;
+  for(const auto& candidate:candidates)if(candidate.eligible){
+    ++sourceCounts[candidate.source];++pathCounts[candidate.path];
+  }
+  for(int row=0;row<candidates.size();++row){
+    const auto& candidate=candidates[row];
+    auto* approval=new QTableWidgetItem;
+    approval->setFlags(candidate.eligible?Qt::ItemIsEnabled|Qt::ItemIsUserCheckable:Qt::NoItemFlags);
+    approval->setCheckState(candidate.eligible&&sourceCounts.value(candidate.source)==1&&pathCounts.value(candidate.path)==1
+      ?Qt::Checked:Qt::Unchecked);
+    table->setItem(row,0,approval);
+    const QStringList values={QFileInfo(candidate.source).fileName(),QFileInfo(candidate.path).fileName(),
+      QString::fromStdString(candidate.result->method+"/"+candidate.result->basis),
+      candidate.match==si::SpeMatch::Verified&&!candidate.eligible?tr("종료 또는 SPE 계산 조건 확인 필요"):speMatchMessage(candidate.match)};
+    for(int column=0;column<values.size();++column)table->setItem(row,column+1,new QTableWidgetItem(values[column]));
+  }
+  layout->addWidget(table);
+  auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+  buttons->button(QDialogButtonBox::Ok)->setText(tr("선택 연결 승인"));
+  layout->addWidget(buttons);
+  connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+  connect(buttons,&QDialogButtonBox::accepted,&dialog,[&]{
+    QSet<QString> sources,selectedPaths;
+    for(int row=0;row<candidates.size();++row){
+      const auto& candidate=candidates[row];
+      if(!candidate.eligible||table->item(row,0)->checkState()!=Qt::Checked)continue;
+      if(sources.contains(candidate.source)||selectedPaths.contains(candidate.path)){
+        QMessageBox::warning(&dialog,tr("중복 연결"),tr("구조와 SPE 파일을 각각 한 번만 선택하세요."));
+        return;
+      }
+      sources.insert(candidate.source);selectedPaths.insert(candidate.path);
+    }
+    for(int row=0;row<candidates.size();++row){
+      const auto& candidate=candidates[row];
+      if(candidate.eligible&&table->item(row,0)->checkState()==Qt::Checked)
+        applySinglePoint(candidate.source,candidate.path,*parsed_.value(candidate.source),candidate.result);
+    }
+    selectStructure();refreshDocumentModel();
+    status_->setText(tr("SPE %1개 연결 완료").arg(sources.size()));
+    dialog.accept();
+  });
+  dialog.exec();
 }
 void MainWindow::unlinkSinglePoint(){
   if(parsing_||files_->currentRow()<0)return;
   const QString source=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();
   manualPairedPaths_.remove(source);
+  restoredSpeLinks_.remove(source);
   const QString automatic=pairedSinglePointPath(source);
-  if(automatic.isEmpty())pairedPaths_.remove(source);else pairedPaths_.insert(source,automatic);
-  try{parsed_.insert(source,cache_->get(std::filesystem::path(source.toStdWString())));}
+  pairedPaths_.remove(source);
+  try{
+    const auto primary=cache_->get(source.toStdWString());
+    parsed_.insert(source,primary);
+    if(!automatic.isEmpty()){
+      const auto spe=cache_->get(automatic.toStdWString());
+      parsed_.insert(automatic,spe);
+      pairedPaths_.insert(source,automatic);
+      if(useSinglePoint(source,*primary,*spe))parsed_.insert(source,withSpeSpin(primary,*spe));
+    }
+  }
   catch(const std::exception&){/* Offline project: retain the saved primary snapshot. */}
   selectStructure();refreshDocumentModel();
   status_->setText(tr("수동 SPE 연결 해제 · 자동 매칭 복구"));
@@ -487,7 +632,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   {
     QSignalBlocker blocked(files_);
     files_->setUpdatesEnabled(false);
-    if(!append){files_->setRowCount(0);parsed_.clear();pairedPaths_.clear();moleculeView_->clearMolecule();}
+    if(!append){files_->setRowCount(0);parsed_.clear();pairedPaths_.clear();restoredSpeLinks_.clear();moleculeView_->clearMolecule();}
     files_->setRowCount(firstRow+paths.size());
     for(int i=0;i<paths.size();++i){
       const auto& path=paths[i];const int row=firstRow+i;
@@ -504,7 +649,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
   if(paths.isEmpty()){scheduleDocumentRefresh();status_->setText(tr("구조 목록이 비었습니다."));return;}
   parsing_=true;previewTimer_->stop();
   status_->setText(tr("0 / %1개 구조 해석 중…").arg(paths.size()));
-  struct Result{QString path;std::shared_ptr<const si::GaussianResult> data;QString pairPath;std::shared_ptr<const si::GaussianResult> pair;};
+  struct Result{QString path;std::shared_ptr<const si::GaussianResult> data;QString pairPath;std::shared_ptr<const si::GaussianResult> pair;bool restoredPair{};};
   auto* watcher=new QFutureWatcher<Result>(this);importWatcher_=watcher;
   connect(watcher,&QFutureWatcher<Result>::resultReadyAt,this,[this,watcher,generation](int index){
     if(generation!=importGeneration_)return;
@@ -512,6 +657,7 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
     // The user may have removed a pending row while the worker was reading it.
     for(int row=0;row<files_->rowCount();++row)if(files_->item(row,0)->data(Qt::UserRole).toString()==item.path){
       parsed_.insert(item.path,item.data);pairedPaths_.insert(item.path,item.pairPath);
+      if(item.restoredPair)restoredSpeLinks_.insert(item.path);
       if(item.pair)parsed_.insert(item.pairPath,item.pair);
       files_->item(row,6)->setText(item.data->success?tr("해석 완료"):tr("Error"));
       files_->item(row,6)->setToolTip(QString::fromStdString(item.data->reason));
@@ -560,16 +706,20 @@ void MainWindow::parsePaths(const QList<QString>& incoming,bool append,bool disc
       const auto& path=paths[i];Result item{path,parse(path),{},{}};
       try{
         item.pairPath=restoredPairedPaths.value(path).toString();
+        item.restoredPair=!item.pairPath.isEmpty();
         if(item.pairPath.isEmpty())item.pairPath=pairedSinglePointPath(path);
         if(!item.pairPath.isEmpty()){
            item.pair=parse(item.pairPath);
-           if(item.pair&&item.pair->success&&!item.pair->spinDensities.empty()&&item.data){
-             auto combined=std::make_shared<si::GaussianResult>(*item.data);
-             combined->spinDensities=item.pair->spinDensities;
-             combined->spinBasisLevel=item.pair->basisLevel;
-             combined->spinSourcePath=std::filesystem::path(item.pairPath.toStdWString());
-             combined->spinFallback=false;
-             item.data=combined;
+           if(item.pair&&item.pair->success&&item.data){
+             const auto match=si::validateSpe(*item.data,*item.pair);
+             const bool usable=item.restoredPair?legacySpeAllowed(match):verifiedAutomaticSpe(match,*item.pair);
+             if(usable)item.data=withSpeSpin(item.data,*item.pair);
+             else if(item.data->spinSourcePath==item.pair->path){
+               auto primary=std::make_shared<si::GaussianResult>(*item.data);
+               primary->spinDensities.clear();
+               primary->spinSourcePath=primary->path;
+               item.data=primary;
+             }
            }
          }
       }
@@ -587,13 +737,20 @@ void MainWindow::syncReferenceOptions(){
   reference_->setCurrentIndex(index>=0?index:(reference_->count()?0:-1));
   pendingReferencePath_.clear();
 }
+bool MainWindow::useSinglePoint(const QString& source,const si::GaussianResult& primary,const si::GaussianResult& spe) const{
+  if(!spe.success||!spe.scfEnergy)return false;
+  const auto match=si::validateSpe(primary,spe);
+  if(restoredSpeLinks_.contains(source)||manualPairedPaths_.contains(source))return legacySpeAllowed(match);
+  return verifiedAutomaticSpe(match,spe);
+}
+
 std::vector<si::EnergyRecord> MainWindow::energyRecords() const{
   std::vector<si::EnergyRecord> records;
   for(int row=0;row<files_->rowCount();++row){
     const auto* item=files_->item(row,0);if(!item)continue;
     const auto path=item->data(Qt::UserRole).toString();const auto main=parsed_.value(path);if(!main)continue;
     si::EnergyRecord record;record.name=item->text().toStdString();record.frequency=*main;
-    if(const auto pair=parsed_.value(pairedPaths_.value(path));pair&&pair->success){record.singlePoint=*pair;if(record.frequency.finalGeometry.empty()&&!pair->finalGeometry.empty())record.frequency.finalGeometry=pair->finalGeometry;}
+    if(const auto pair=parsed_.value(pairedPaths_.value(path));pair&&useSinglePoint(path,*main,*pair)){record.singlePoint=*pair;if(record.frequency.finalGeometry.empty()&&!pair->finalGeometry.empty())record.frequency.finalGeometry=pair->finalGeometry;}
     records.push_back(std::move(record));
   }
   return records;
@@ -603,20 +760,23 @@ void MainWindow::refreshPreflight(){
   const auto basis=static_cast<si::EnergyBasis>(energyBasis_->currentData().toInt());
   QStringList conditionWarnings;
   (void)si::computationalDetails(records,basis,&conditionWarnings);
-  for(int row=0;row<static_cast<int>(records.size());++row){
-    auto& record=records[row];const auto& freq=record.frequency;QStringList errors,warnings=conditionWarnings;
+  const auto paths=sourcePaths();
+  for(auto& record:records){
+    const int row=paths.indexOf(QDir::fromNativeSeparators(QString::fromStdWString(record.frequency.path.wstring())));
+    if(row<0)continue;const auto& freq=record.frequency;QStringList errors,warnings=conditionWarnings;
     if(!freq.success)errors.append(QString::fromStdString(freq.reason));
     if(freq.finalGeometry.empty())errors.append("Final geometry missing");
     if(energyInputMode_->currentData().toString()=="automatic"&&!si::selectEnergy(record,basis))errors.append("Required energy missing for selected mode");
     if(!freq.normalTermination)warnings.append("Normal termination not confirmed");
     if(!freq.frequenciesPresent)warnings.append("Frequency data missing");
     if(!record.singlePoint||!record.singlePoint->scfEnergy)warnings.append("SPE missing");
-    if(record.singlePoint){
-      const auto& spe=*record.singlePoint;
-      if(freq.finalGeometry.size()!=spe.finalGeometry.size())warnings.append("Primary/SPE atom count mismatch");
-      if(freq.charge&&spe.charge&&freq.charge!=spe.charge)warnings.append("Primary/SPE charge mismatch");
-      if(freq.multiplicity&&spe.multiplicity&&freq.multiplicity!=spe.multiplicity)warnings.append("Primary/SPE multiplicity mismatch");
-      if(!spe.normalTermination)warnings.append("SPE normal termination not confirmed");
+    if(const auto spe=parsed_.value(pairedPaths_.value(paths[row]))){
+      const auto match=si::validateSpe(freq,*spe);
+      if(match!=si::SpeMatch::Verified)warnings.append(speMatchMessage(match));
+      if(match==si::SpeMatch::Charge&&freq.multiplicity&&spe->multiplicity&&freq.multiplicity!=spe->multiplicity)
+        warnings.append(speMatchMessage(si::SpeMatch::Multiplicity));
+      if(!spe->normalTermination)warnings.append("SPE normal termination not confirmed");
+      if(spe->method.empty()||spe->basis.empty())warnings.append("SPE method or basis missing");
     }
     if(freq.imaginaryFrequencies.size()>=2)warnings.append("2+ imaginary frequencies");
     if(freq.spinDensities.empty())warnings.append("Spin density missing");
@@ -727,7 +887,7 @@ void MainWindow::selectStructure(){
   const int row=files_->currentRow();if(row<0)return;auto* item=files_->item(row,0);if(!item)return;structureLabel_->setText(item->text());const auto result=parsed_.value(item->data(Qt::UserRole).toString());if(result)moleculeView_->setMolecule(result->finalGeometry,result->spinDensities,result->spinBasisLevel,result->spinFallback);scheduleDocumentRefresh();
 }
 void MainWindow::renameSelected(){const int row=files_->currentRow();if(row<0)return;QString name=structureLabel_->text().trimmed();if(name.isEmpty()){bool accepted=false;name=QInputDialog::getText(this,tr("구조 이름 (Structure Label)"),tr("구조 이름 (Structure Label):"),QLineEdit::Normal,files_->item(row,0)->text(),&accepted).trimmed();if(!accepted||name.isEmpty())return;}files_->item(row,0)->setText(name);manualLabelsEdited_=true;labelInputAtManualEdit_=fileNames_->toPlainText();labelBaseAtManualEdit_=baseDirectory_->text();syncReferenceOptions();scheduleDocumentRefresh();}
-void MainWindow::removeSelected(){const int row=files_->currentRow();if(row<0)return;const auto path=files_->item(row,0)->data(Qt::UserRole).toString();for(int i=0;i<reactionStages_.size();++i){auto stage=reactionStages_[i].toObject();auto members=stage["files"].toArray();for(int j=members.size()-1;j>=0;--j)if(members[j].toString()==path)members.removeAt(j);stage["files"]=members;if(stage["reference"].toString()==path)stage["reference"]=members.isEmpty()?QString():members.first().toString();reactionStages_[i]=stage;}files_->removeRow(row);parsed_.remove(path);if(files_->rowCount())files_->selectRow(std::min(row,files_->rowCount()-1));else moleculeView_->clearMolecule();syncReferenceOptions();scheduleDocumentRefresh();}
+void MainWindow::removeSelected(){const int row=files_->currentRow();if(row<0)return;const auto path=files_->item(row,0)->data(Qt::UserRole).toString();for(int i=0;i<reactionStages_.size();++i){auto stage=reactionStages_[i].toObject();auto members=stage["files"].toArray();for(int j=members.size()-1;j>=0;--j)if(members[j].toString()==path)members.removeAt(j);stage["files"]=members;if(stage["reference"].toString()==path)stage["reference"]=members.isEmpty()?QString():members.first().toString();reactionStages_[i]=stage;}files_->removeRow(row);parsed_.remove(path);pairedPaths_.remove(path);manualPairedPaths_.remove(path);restoredSpeLinks_.remove(path);if(files_->rowCount())files_->selectRow(std::min(row,files_->rowCount()-1));else moleculeView_->clearMolecule();syncReferenceOptions();scheduleDocumentRefresh();}
 void MainWindow::moveSelectedStructure(int targetRow){
   const int from=files_->currentRow(),count=files_->rowCount();
   if(parsing_||from<0||targetRow<0||targetRow>=count||from==targetRow)return;
@@ -815,8 +975,10 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
         tr("Relative energy values of %1 in kcal/mol.").arg(si::displayMechanism(model)),
         {QString(),"ΔE","ΔΔE^{a}","E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}","Δ_{Dispersion}","Δ_{Complexation}","ΔG^{c}"},{},{}};
       std::vector<si::LegacyRelativeEnergy> relative;
+      if(!manualRef)table.thermochemistryNote=si::relativeTemperatureNote(records);
       if(!manualRef)relative=si::legacyRelativeEnergies(records,records[refIndex],includeDispersion_->isChecked(),includeComplexation_->isChecked());
       else {
+        table.thermochemistryNote=tr("Thermal components are not evaluated for a manually entered reference.");
         bool ok=false;const double ref=manualReference_->text().toDouble(&ok);
         for(const auto& record:records){
           si::LegacyRelativeEnergy entry{record.name,{}};
@@ -931,7 +1093,7 @@ bool MainWindow::saveProjectToPath(const QString& path){
       state.gaussianSnapshots.insert(source,si::GaussianSnapshot::encode(*result));
     const auto pairedPath=pairedPaths_.value(source);
     if(!pairedPath.isEmpty()){
-      if(const auto paired=parsed_.value(pairedPath)){
+      if(const auto paired=parsed_.value(pairedPath);paired&&useSinglePoint(source,*parsed_.value(source),*paired)){
         state.pairedSnapshotPaths.insert(source,pairedPath);
         state.gaussianSnapshots.insert(pairedPath,si::GaussianSnapshot::encode(*paired));
       }
@@ -961,7 +1123,9 @@ bool MainWindow::loadProjectPath(const QString& path){
   xyzOutputPath_->setText(relocatedOutput(state.xyzPath,QStringLiteral("structures.xyz")));
   fileNames_->clear();fileNamesInfo_->clear();currentProjectPath_=QFileInfo(path).absoluteFilePath();projectName_=state.projectName.isEmpty()?QFileInfo(path).completeBaseName().remove(".si_project"):state.projectName;
   setWindowTitle(tr("%1 — SI Generator").arg(projectName_));ProjectManagerDialog::rememberProject(currentProjectPath_);
-  activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,state.pairedSnapshotPaths);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));return true;
+  auto paired=state.pairedSnapshotPaths;
+  for(auto it=state.manualPairedPaths.constBegin();it!=state.manualPairedPaths.constEnd();++it)paired.insert(it.key(),it.value());
+  activeStage_=reactionStages_.isEmpty()?-2:0;parsePaths(state.files,false,false,QStringLiteral("@project-restore"),state.gaussianSnapshots,paired);refreshStageNavigation();refreshStageWorkspace();scrollTo(filesSection_);status_->setText(tr("프로젝트: %1 · 전환 및 종료 시 자동 저장").arg(projectName_));return true;
 }
 
 bool MainWindow::prepareFigures(bool preflightDone){
@@ -1196,6 +1360,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
       }
       if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single"&&!selected.empty()){
         size_t ref=0;for(size_t i=0;i<selected.size();++i)if(QFileInfo(QString::fromStdWString(selected[i].frequency.path.wstring())).absoluteFilePath().compare(QFileInfo(stage["reference"].toString()).absoluteFilePath(),Qt::CaseInsensitive)==0)ref=i;
+        split.thermochemistryNote=si::relativeTemperatureNote(selected);
         const auto relative=si::legacyRelativeEnergies(selected,selected[ref],includeDispersion_->isChecked(),includeComplexation_->isChecked());
         split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
         for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}

@@ -168,6 +168,45 @@ int main(int argc, char** argv) {
   ok &= check(si::formatNumber(1.23456,3,4)==QStringLiteral("1.2346")&&si::formatNumber(1.23456,3,0)==QStringLiteral("1.235"),"decimal precision override");
   si::EnergyRecord reference{"ref",{},{}},sample{"sample",{}, {}};reference.frequency.scfEnergy=-100.0;reference.frequency.zeroPointCorrection=0.10;reference.frequency.thermalCorrection=0.12;reference.frequency.entropy=50.0;reference.frequency.dispersion=-0.01;sample.frequency.scfEnergy=-99.9;sample.frequency.zeroPointCorrection=0.11;sample.frequency.thermalCorrection=0.14;sample.frequency.entropy=55.0;sample.frequency.dispersion=-0.005;
   for(const auto [dispersion,complexation]:{std::pair{false,false},std::pair{false,true},std::pair{true,false},std::pair{true,true}}){const auto values=si::legacyRelativeEnergies({sample},reference,dispersion,complexation);ok&=check(values.size()==1&&values[0].kcalTerms[8].has_value(),"relative energy option combination");const auto columns=si::relativeEnergyColumns(dispersion,complexation);ok&=check(columns.size()==static_cast<size_t>(7+(dispersion?1:0)+(complexation?1:0)),"relative table column combination");}
+  {
+    auto cold=reference,warm=sample;
+    cold.frequency.temperatureKelvin=350.0;
+    warm.frequency.temperatureKelvin=350.0;
+    const auto relative=si::legacyRelativeEnergies({warm},cold,false,false);
+    const double entropyDelta=*warm.frequency.entropy-*cold.frequency.entropy;
+    ok&=check(relative.front().kcalTerms[5]&&std::abs(*relative.front().kcalTerms[5]+350.0*entropyDelta/1000.0)<1e-12,
+              "relative entropy uses the Gaussian temperature");
+    cold.frequency.temperatureKelvin=298.15;
+    const auto mixed=si::legacyRelativeEnergies({warm},cold,false,false);
+    ok&=check(!mixed.front().kcalTerms[5]&&!mixed.front().kcalTerms[8]&&mixed.front().kcalTerms[2],
+              "mixed temperatures withhold entropy and Gibbs differences");
+    warm.frequency.temperatureKelvin=298.15;
+    const auto standard=si::legacyRelativeEnergies({warm},cold,false,false);
+    ok&=check(standard.front().kcalTerms[5]&&*standard.front().kcalTerms[5]==-entropyDelta*298.15/1000.0,
+              "298.15 K relative entropy retains the legacy calculation");
+  }
+  {
+    si::GaussianResult primary;
+    primary.success=true;primary.scfEnergy=-100;primary.charge=0;primary.multiplicity=1;
+    primary.finalGeometry={{6,"C",{0,0,0}},{1,"H",{1,0,0}},{7,"N",{0,1,0}},{8,"O",{0,0,1}}};
+    auto candidate=primary;
+    for(auto& atom:candidate.finalGeometry){
+      const auto [x,y,z]=atom.xyz;atom.xyz={5-y,3+x,2+z};
+    }
+    ok&=check(si::validateSpe(primary,candidate)==si::SpeMatch::Verified,"SPE matches rotated and translated geometry");
+    auto mirror=primary;mirror.finalGeometry.back().xyz[2]=-1;
+    ok&=check(si::validateSpe(primary,mirror)==si::SpeMatch::Geometry,"SPE rejects a reflected geometry");
+    auto changed=candidate;changed.finalGeometry.front().xyz[0]+=0.2;
+    ok&=check(si::validateSpe(primary,changed)==si::SpeMatch::Geometry,"SPE rejects a displaced atom");
+    std::swap(changed.finalGeometry[0],changed.finalGeometry[1]);
+    ok&=check(si::validateSpe(primary,changed)==si::SpeMatch::Atoms,"SPE rejects reordered elements");
+    candidate.charge=1;
+    ok&=check(si::validateSpe(primary,candidate)==si::SpeMatch::Charge,"SPE rejects a different charge");
+    candidate.charge=0;candidate.multiplicity=3;
+    ok&=check(si::validateSpe(primary,candidate)==si::SpeMatch::Multiplicity,"SPE rejects a different multiplicity");
+    candidate.multiplicity.reset();
+    ok&=check(si::validateSpe(primary,candidate)==si::SpeMatch::MissingConditions,"SPE reports missing metadata");
+  }
   sample.frequency.dispersion.reset();const auto withoutDispersion=si::legacyRelativeEnergies({sample},reference,false,true);ok&=check(withoutDispersion[0].kcalTerms[8].has_value(),"missing dispersion allowed when excluded");
 
   QTemporaryDir temporary;
