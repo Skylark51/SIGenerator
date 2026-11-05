@@ -1,3 +1,4 @@
+#include "ProjectHistory.hpp"
 #include <QMenu>
 #include "DocumentPreviewWidget.hpp"
 #include "MainWindow.hpp"
@@ -469,6 +470,49 @@ struct Phase1Smoke {
     ok&=check(!window.energyRecords().front().singlePoint&&window.files_->item(0,6)->toolTip().contains("최종 구조"),
               "an incomplete conventional SPE file is reported without using its energy");
     return ok;
+  }
+  static bool localHistory(const QString& fixture){
+    QTemporaryDir folder;
+    MainWindow window;
+    const auto path=folder.filePath("work.si_project.json");
+    window.parsePaths({fixture},false,false);
+    if(!waitForImport(window)||!window.saveProjectToPath(path))return false;
+    const auto original=window.structureLabels().front();
+    const ProjectHistory history(path);
+    QString error;
+    if(!history.record(ProjectStore::serialize(path,window.captureProjectState()),"Original",&error))return false;
+    window.files_->item(0,0)->setText("Unsaved rename");
+    bool compared=false;
+    QTimer::singleShot(0,&window,[&]{
+      auto* dialog=window.findChild<QDialog*>("projectHistoryDialog");
+      if(!dialog)return;
+      auto* changes=dialog->findChild<QTableWidget*>("projectChanges");
+      for(int row=0;row<changes->rowCount();++row)
+        if(changes->item(row,0)->text()=="Structure renamed"&&changes->item(row,3)->text()=="Unsaved rename")compared=true;
+      QTimer::singleShot(0,dialog,[]{
+        if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))box->button(QMessageBox::Yes)->click();
+      });
+      dialog->findChild<QPushButton*>("restoreProjectVersion")->click();
+      if(dialog->isVisible())dialog->reject();
+    });
+    window.showProjectHistory();
+    if(!waitForImport(window))return false;
+    QVector<ProjectVersion> versions;
+    if(!check(compared&&window.structureLabels()==QStringList{original}&&
+              history.list(&versions,&error)&&versions.size()==2,
+              "history dialog compares unsaved edits and restores through the normal project editor"))return false;
+    const auto basis=window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::DefaultComposite));
+    if(basis<0)return false;
+    window.energyBasis_->setCurrentIndex(basis);
+    window.siOutputPath_->setText(folder.filePath("history.docx"));
+    window.xyzOutputPath_->setText(folder.filePath("history.xyz"));
+    chooseSiRendering(&window,QMessageBox::NoRole);
+    window.exportSiDocument();
+    if(!waitUntil([&]{return !window.generationRunning_;}))return false;
+    return check(QFileInfo::exists(folder.filePath("history.docx"))&&QFileInfo::exists(folder.filePath("history.xyz"))&&
+                 history.list(&versions,&error)&&versions.size()==3&&versions.front().message.contains("history.docx"),
+                 "successful SI export records its project snapshot");
+
   }
   static bool portableProject(const QString& fixture){
     MainWindow source;QTemporaryDir temp;bool ok=true;
@@ -1396,6 +1440,7 @@ int main(int argc,char** argv){
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
   ok&=Phase1Smoke::structureColumnsAndSpeReview(QString::fromLocal8Bit(argv[1]));
+  ok&=Phase1Smoke::localHistory(QString::fromLocal8Bit(argv[1]));
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");
 
   {

@@ -59,6 +59,8 @@ void MainWindow::showProjectHistory(){
   auto* buttons=new QDialogButtonBox(QDialogButtonBox::Close,&dialog);
   auto* record=buttons->addButton(tr("현재 상태 버전 저장…"),QDialogButtonBox::ActionRole);
   auto* restore=buttons->addButton(tr("기준 버전 복원…"),QDialogButtonBox::ActionRole);
+  record->setObjectName("recordProjectVersion");
+  restore->setObjectName("restoreProjectVersion");
   layout->addWidget(buttons);
 
   auto refresh=[&]{
