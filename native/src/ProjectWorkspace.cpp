@@ -1,3 +1,4 @@
+#include <QPushButton>
 #include "MainWindow.hpp"
 #include "EditorText.hpp"
 #include "GaussianSnapshot.hpp"
@@ -94,6 +95,7 @@ bool MainWindow::loadProjectPath(const QString& path){
   return true;
 }
 void MainWindow::applyProjectState(const QString& path,const ProjectState& state){
+  previousDetails_.clear();restoreDetails_->setEnabled(false);
   pendingStructureLabels_=lines(state.structureNames);pendingLabelsByPath_.clear();for(int i=0;i<state.files.size();++i)pendingLabelsByPath_.insert(QFileInfo(state.files[i]).absoluteFilePath(),pendingStructureLabels_.value(i,QFileInfo(state.files[i]).completeBaseName()));
   referenceMode_->setCurrentIndex(std::max(0,referenceMode_->findData(state.referenceMode)));pendingReferencePath_=state.referencePath;manualReference_->setText(state.manualReference);energyInputMode_->setCurrentIndex(std::max(0,energyInputMode_->findData(state.energyInputMode)));bool ok=false;const int basis=state.energyBasis.toInt(&ok);if(ok&&basis==static_cast<int>(si::EnergyBasis::LegacyComposite)&&energyBasis_->findData(basis)<0)energyBasis_->addItem("Legacy composite (saved project)",basis);if(ok)energyBasis_->setCurrentIndex(std::max(0,energyBasis_->findData(basis)));manualAbsoluteNames_->setPlainText(state.manualAbsoluteNames);manualAbsoluteValues_->setPlainText(state.manualAbsoluteValues);manualRelativeNames_->setPlainText(state.manualRelativeNames);manualRelativeValues_->setPlainText(state.manualRelativeValues);spinNames_->setPlainText(state.spinNames);spinIndices_->setPlainText(state.spinIndices);spinAtomNumbers_->setChecked(state.spinAtomNumbers);geometryNames_->setPlainText(state.geometryNames);geometryIndices_->setPlainText(state.geometryIndices);geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);captions_->setPlainText(state.captions);mechanismName_->setText(state.mechanismName);documentTitle_->setText(state.documentTitle);manuscriptTitle_->setText(state.manuscriptTitle);authors_->setText(state.authors);affiliations_->setText(state.affiliations);correspondingEmail_->setText(state.correspondingEmail);computationalDetails_->setPlainText(state.computationalDetails);detailsEdited_=state.computationalDetailsEdited;referencesText_->setPlainText(state.referencesText);figureSettings_=state.figureSettings;reactionStages_=state.reactionStages;
   manualPairedPaths_.clear();

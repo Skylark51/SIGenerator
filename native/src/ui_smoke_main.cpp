@@ -71,16 +71,6 @@
 namespace {
 bool waitUntil(const std::function<bool()>& fn,int ms=5000){QElapsedTimer t;t.start();while(!fn()&&t.elapsed()<ms){QCoreApplication::processEvents(QEventLoop::AllEvents,50);QTest::qWait(20);}return fn();}
 bool check(bool value,const char* message){if(!value)std::cerr<<"FAILED: "<<message<<'\n';return value;}
-void chooseSiRendering(QWidget* window,QMessageBox::ButtonRole role){
-  QTimer::singleShot(0,window,[window,role]{
-    auto* choice=window->findChild<QMessageBox*>("siRenderingChoice");
-    if(!choice)return;
-    if(role==QMessageBox::YesRole)QTimer::singleShot(0,window,[window]{
-      if(auto* dialog=window->findChild<FigureSetupDialog*>())dialog->findChild<QPushButton*>("nextFigureGroup")->click();
-    });
-    for(auto* button:choice->buttons())if(choice->buttonRole(button)==role){button->click();break;}
-  });
-}
 void clickClipboardButton(QPushButton* button){
   // Allow Windows clipboard consumers to release the clipboard between copies.
   QTest::qWait(80);button->click();QTest::qWait(80);
@@ -203,8 +193,13 @@ struct Phase1Smoke {
     window.parsePaths({paths[4]},true,false);window.parsePaths({paths[5]},true,false);window.chooseStageScope(0);if(!waitForImport(window))return false;ok&=check(window.reactionStages_[1].toObject()["files"].toArray().contains(paths[4])&&window.reactionStages_[1].toObject()["files"].toArray().contains(paths[5])&&!window.reactionStages_[0].toObject()["files"].toArray().contains(paths[5]),"queued imports retain their target reaction when navigation changes");
     QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());ok&=check(dialog&&dialog->objectName()=="extractionDetailsDialog"&&dialog->findChild<QTableWidget*>()->columnCount()==7,"extraction metadata is available in its own optional dialog");if(dialog)dialog->reject();});window.showExtractionDetails();
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));window.refreshDocumentModel();
-    auto render=[&]{QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(auto* next=dialog?dialog->findChild<QPushButton*>("nextFigureGroup"):nullptr){for(int page=0;page<10&&dialog->isVisible();++page)next->click();}else {ok=false;if(dialog)dialog->reject();}});return window.prepareFigures();};
-    ok&=check(render(),"current reaction Figure preparation succeeds");window.chooseStageScope(1);window.stageFigureCaptions_->setPlainText("Reaction B figure one\nReaction B figure two");ok&=check(render(),"second reaction Figure preparation succeeds independently");window.refreshDocumentModel();ok&=check(window.documentModel_.figures.size()==3&&window.documentModel_.figures[0].stageId!=window.documentModel_.figures.last().stageId,"rendered Figures keep reaction membership");
+    auto render=[&](const QStringList& captions=QStringList{}){QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(auto* next=dialog?dialog->findChild<QPushButton*>("nextFigureGroup"):nullptr){for(int page=0;page<10&&dialog->isVisible();++page){
+      if(page<captions.size())dialog->findChild<QLineEdit*>("figureGroupCaption")->setText(captions[page]);
+      next->click();
+    }}else {ok=false;if(dialog)dialog->reject();}});return window.prepareFigures();};
+    ok&=check(render(),"current reaction Figure preparation succeeds");window.chooseStageScope(1);ok&=check(render({"Reaction B figure one","Reaction B figure two"}),"second reaction Figure preparation succeeds independently");window.refreshDocumentModel();ok&=check(window.documentModel_.figures.size()==3&&window.documentModel_.figures[0].stageId!=window.documentModel_.figures.last().stageId,"rendered Figures keep reaction membership");
+    ok&=check(window.documentModel_.figureCaptions.mid(1)==QStringList{"Reaction B figure one","Reaction B figure two"},
+              "Figure dialog saves each caption with its own group");
     QString error;const auto docx=folder.filePath("grouped.docx");ok&=check(DocxWriter::writeDocument(docx,window.documentModel_,&error),"reaction grouped SI generated");QFile output(docx);if(output.open(QIODevice::ReadOnly)){const auto bytes=output.readAll();ok&=check(bytes.indexOf("r:embed=\"rIdFigure1\"")<bytes.indexOf("Reaction A: Relative")&&bytes.indexOf("Reaction A: Relative")<bytes.indexOf("r:embed=\"rIdFigure2\"")&&bytes.indexOf("r:embed=\"rIdFigure2\"")<bytes.indexOf("Reaction B: Relative"),"DOCX places each reaction Figure before its own tables");}else ok=false;
     const auto project=folder.filePath("workspace.si_project.json");ok&=check(window.saveProjectToPath(project),"reaction workspace saves");ProjectState loaded;ok&=check(ProjectStore::load(project,&loaded,&error)&&loaded.reactionStages==window.reactionStages_,"reaction order and Figure settings roundtrip");
     // A mixed atom count must never silently produce a huge Hartree-based relative energy.
@@ -325,6 +320,24 @@ struct Phase1Smoke {
     grid->setCurrentCell(0,0);QApplication::clipboard()->setText("Reactant with spaces");
     window.findChild<QPushButton*>("pasteStructureTitles")->click();
     ok&=check(window.structureLabels()[0]=="Reactant with spaces","explicit paste titles button accepts one title");
+    auto* label=window.stageLabelEdit_;
+    window.show();
+    window.activateWindow();
+    grid->setFocus();
+    QApplication::processEvents();
+    QTest::keyClick(grid,Qt::Key_D,Qt::ControlModifier|Qt::ShiftModifier);
+    ok&=check(label->hasFocus()&&label->text()=="Reactant with spaces","table shortcut guides the user to the structure name field");
+    label->setSelection(0,1);
+    QTest::keyClick(label,Qt::Key_U,Qt::ControlModifier|Qt::ShiftModifier);
+    label->setSelection(label->text().indexOf("spaces"),6);
+    QTest::mouseClick(window.findChild<QPushButton*>("workspaceSubscriptButton"),Qt::LeftButton);
+    ok&=check(window.structureLabels()[0]=="^{R}eactant with _{spaces}"&&grid->item(0,0)->text()==window.structureLabels()[0]&&
+      window.stageLabelPreview_->text().contains("<sup>R</sup>")&&window.stageLabelPreview_->text().contains("<sub>spaces</sub>")&&
+      window.sourcePaths()==paths,"main structure workspace applies scripts to the selected label and preview");
+    QTest::keyClick(label,Qt::Key_U,Qt::ControlModifier|Qt::ShiftModifier);
+    ok&=check(window.structureLabels()[0]=="^{R}eactant with ^{spaces}","switching scripts replaces the previous formatting");
+    QTest::keyClick(label,Qt::Key_Z,Qt::ControlModifier);
+    ok&=check(window.structureLabels()[0]=="^{R}eactant with _{spaces}","undo restores the previous script in the table");
     const auto before=window.structureLabels();
     grid->setCurrentCell(2,0);QApplication::clipboard()->setText("Overflow one\nOverflow two");
     QTest::keyClick(grid,Qt::Key_V,Qt::ControlModifier);
@@ -361,8 +374,13 @@ struct Phase1Smoke {
       table->setCurrentCell(0,0);QApplication::clipboard()->setText(QString("^{7}E_{RC}-TS\tsecond\n5DCR-TS\t%1").arg(QFileInfo(first).fileName()));QTest::keyClick(table,Qt::Key_V,Qt::ControlModifier);
       ok&=check(table->item(0,0)->text()=="5DCR-TS"&&table->item(1,0)->text()=="^{7}E_{RC}-TS","two-column paste maps by output filename rather than clipboard row order");
       ok&=check(dialog->findChild<QLabel*>("stageStructureNamePreview")->text().contains("<sup>5</sup>")&&dialog->findChild<QLabel*>("stageStructureNamePreview")->text().contains("<sub>CR</sub>"),"automatic multiplicity and suffix markup preview");
-      edit->setSelection(0,1);dialog->findChild<QPushButton*>("stageSuperscriptButton")->click();edit->setSelection(edit->text().indexOf("CR"),2);dialog->findChild<QPushButton*>("stageSubscriptButton")->click();
-      ok&=check(table->item(0,0)->text()=="^{5}D_{CR}-TS","partial text selection applies explicit superscript and subscript");
+      edit->setFocus();
+      QApplication::processEvents();
+      edit->setSelection(0,1);
+      QTest::keyClick(edit,Qt::Key_U,Qt::ControlModifier|Qt::ShiftModifier);
+      edit->setSelection(edit->text().indexOf("CR"),2);
+      QTest::keyClick(edit,Qt::Key_D,Qt::ControlModifier|Qt::ShiftModifier);
+      ok&=check(table->item(0,0)->text()=="^{5}D_{CR}-TS","keyboard shortcuts format the selected structure name text");
       QApplication::clipboard()->setText("9X\tmissing.out");dialog->findChild<QPushButton*>("pasteStageStructures")->click();ok&=check(dialog->findChild<QLabel*>("stagePasteFeedback")->text().contains("missing.out")&&table->item(1,0)->text()=="^{7}E_{RC}-TS","unmatched output reports a problem without changing existing assignments");
       stages->setCurrentRow(1);ok&=check(table->item(0,0)->text()=="^{5}D_{CR}-TS"&&table->item(0,0)->checkState()==Qt::Checked&&table->item(1,0)->checkState()==Qt::Unchecked,"names shared across stages while membership remains independent");
       if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR"))dialog->grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/stage-name-grid.png");
@@ -399,8 +417,14 @@ struct Phase1Smoke {
     const auto normalSize=library.size();library.resize(640,420);QCoreApplication::processEvents();
     auto* managerScroll=library.findChild<QScrollArea*>("projectManagerScroll");auto* create=library.findChild<QPushButton*>("createProjectButton");
     ok&=check(library.width()==640&&library.height()==420&&managerScroll&&managerScroll->verticalScrollBar()->maximum()>0,"project manager can shrink and scroll on a small desktop");
-    managerScroll->ensureWidgetVisible(create);QCoreApplication::processEvents();
-    ok&=check(managerScroll->viewport()->rect().contains(create->mapTo(managerScroll->viewport(),create->rect().center())),"create project button remains reachable after shrinking");
+    auto* close=library.findChild<QPushButton*>("closeProjectManagerButton");
+    for(auto* button:{create,close}){
+      ok&=check(button&&button->isVisible()&&library.rect().contains(QRect(button->mapTo(&library,QPoint()),button->size()))&&
+        button->mapTo(&library,QPoint()).y()>managerScroll->geometry().bottom(),"project manager footer stays fully visible after shrinking");
+    }
+    auto* location=library.findChild<QLineEdit*>("newProjectLocation");
+    managerScroll->ensureWidgetVisible(location);QCoreApplication::processEvents();
+    ok&=check(managerScroll->viewport()->rect().contains(location->mapTo(managerScroll->viewport(),location->rect().center())),"project location remains reachable by scrolling");
     library.resize(normalSize);managerScroll->verticalScrollBar()->setValue(0);QCoreApplication::processEvents();
     ok&=check(cards->count()==3&&next->isEnabled()&&!previous->isEnabled()&&cards->verticalScrollBar()->maximum()==0,"project list shows a fixed page without vertical scrolling");
     QTest::mouseClick(cards->viewport(),Qt::LeftButton,Qt::NoModifier,cards->visualItemRect(cards->item(1)).center());ok&=check(cards->currentRow()==1,"project card text area selects its project");
@@ -488,7 +512,7 @@ struct Phase1Smoke {
       if(!dialog)return;
       auto* changes=dialog->findChild<QTableWidget*>("projectChanges");
       for(int row=0;row<changes->rowCount();++row)
-        if(changes->item(row,0)->text()=="Structure renamed"&&changes->item(row,3)->text()=="Unsaved rename")compared=true;
+        if(changes->item(row,0)->text()=="구조 이름 변경"&&changes->item(row,3)->text()=="Unsaved rename")compared=true;
       QTimer::singleShot(0,dialog,[]{
         if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget()))box->button(QMessageBox::Yes)->click();
       });
@@ -506,7 +530,7 @@ struct Phase1Smoke {
     window.energyBasis_->setCurrentIndex(basis);
     window.siOutputPath_->setText(folder.filePath("history.docx"));
     window.xyzOutputPath_->setText(folder.filePath("history.xyz"));
-    chooseSiRendering(&window,QMessageBox::NoRole);
+    window.exportFigures_->setChecked(false);
     window.exportSiDocument();
     if(!waitUntil([&]{return !window.generationRunning_;}))return false;
     return check(QFileInfo::exists(folder.filePath("history.docx"))&&QFileInfo::exists(folder.filePath("history.xyz"))&&
@@ -597,7 +621,17 @@ struct Phase1Smoke {
     window.reactionStages_={stage("First stage",{paths[0],paths[1]},paths[1]),stage("Second stage",{paths[1],paths[2]},paths[2])};
     auto model=window.buildDocumentModel();int relative=0;for(const auto& table:model.tables)if(table.section==si::DocumentSection::RelativeEnergy){++relative;ok&=check(table.rows.size()==(relative==3?1:2),"stage membership and unassigned structure retained");if(relative<3)ok&=check(table.rows.last().last()=="0.00","each stage uses its own reference");}
     ok&=check(relative==3&&model.tables[0].caption.startsWith("First stage")&&std::any_of(model.tables.begin(),model.tables.end(),[](const auto& t){return t.caption.startsWith("Second stage");}),"tables grouped in stage order");
-    QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(!dialog){ok=false;return;}auto* list=dialog->findChild<QListWidget*>("reactionStageList");list->setCurrentRow(1);dialog->findChild<QPushButton*>("stageMoveUp")->click();if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR"))dialog->grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/stage-designer.png");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();});
+    window.chooseStageScope(0);
+    const int crossStageReference=window.stageReference_->findData(paths[2]);
+    ok&=check(crossStageReference>=0,"stage settings offer a structure from another stage");
+    window.stageReference_->setCurrentIndex(crossStageReference);
+    model=window.buildDocumentModel();
+    for(const auto& table:model.tables)if(table.section==si::DocumentSection::RelativeEnergy&&table.caption.startsWith("First stage")){
+      bool valid=false;const double delta=table.rows.last().last().toDouble(&valid);
+      ok&=check(table.rows.size()==2&&valid&&std::abs(delta+6.28)<0.02,
+        "cross-stage reference supplies the energy zero without adding a row");
+    }
+    QTimer::singleShot(0,&window,[&]{auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());if(!dialog){ok=false;return;}auto* list=dialog->findChild<QListWidget*>("reactionStageList");auto* reference=dialog->findChild<QComboBox*>("reactionStageReference");ok&=check(reference->currentData().toString()==paths[2],"stage editor restores the cross-stage reference");list->setCurrentRow(1);dialog->findChild<QPushButton*>("stageMoveUp")->click();if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR"))dialog->grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/stage-designer.png");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok)->click();});
     window.editReactionStages();model=window.buildDocumentModel();ok&=check(window.reactionStages_.first().toObject()["name"]=="Second stage"&&model.tables.first().caption.startsWith("Second stage"),"moving a stage reorders its complete table group");
     ProjectState state;state.reactionStages=window.reactionStages_;QString error;ProjectState loaded;const auto project=temp.filePath("stages.json");ok&=check(ProjectStore::save(project,state,&error)&&ProjectStore::load(project,&loaded,&error)&&loaded.reactionStages==state.reactionStages,"stage order and reference roundtrip");
     const auto output=temp.filePath("stages.docx");ok&=check(DocxWriter::writeDocument(output,model,&error),"stage DOCX generated");QFile file(output);ok&=check(file.open(QIODevice::ReadOnly),"stage DOCX readable");const auto bytes=file.readAll();ok&=check(bytes.indexOf("Second stage: Absolute")<bytes.indexOf("Second stage: Relative")&&bytes.indexOf("Second stage: Relative")<bytes.indexOf("First stage: Absolute"),"DOCX preserves complete stage order");
@@ -871,7 +905,7 @@ struct Phase1Smoke {
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
     window.referencesText_->clear();window.computationalDetails_->clear();window.detailsEdited_=true;
     window.siOutputPath_->setText(folder.filePath("empty-details.docx"));window.xyzOutputPath_->setText(folder.filePath("empty-details.xyz"));
-    chooseSiRendering(&window,QMessageBox::YesRole);
+    window.exportFigures_->setChecked(true);
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return QFile::exists(window.siOutputPath_->text())&&window.status_->text().contains("생성 완료");}),"SI export succeeds with both computational details and references empty");
     return ok;
@@ -926,7 +960,7 @@ struct Phase1Smoke {
     window.fileNames_->setPlainText(rows.join('\n'));
     window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
     const auto output=folder.filePath("export-synced-labels.docx");window.siOutputPath_->setText(output);window.xyzOutputPath_->setText(folder.filePath("export-synced-labels.xyz"));
-    chooseSiRendering(&window,QMessageBox::NoRole);
+    window.exportFigures_->setChecked(false);
     window.findChild<QToolButton*>("generateSiButton")->click();
     ok&=check(waitUntil([&]{return QFile::exists(output)&&QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료");})&&window.structureLabels()==orderedLabels&&window.sourcePaths()==orderedPaths,"Generate SI automatically applies all 15 pasted labels while retaining user-selected order");
     ok&=check(window.parsed_.value(paths[5])==originalData&&!window.parsing_,"export name synchronization reuses parsed structures and their spin sources");
@@ -1002,8 +1036,21 @@ struct Phase1Smoke {
     const auto unrelated=folder.filePath("unrelated.out");QFile::copy(fixture,unrelated);
     QDir(folder.path()).mkdir("nested");QFile::copy(fixture,folder.filePath("nested/hidden.out"));
     QMimeData mime;mime.setUrls({QUrl::fromLocalFile(folder.path())});
+    const auto nested=folder.filePath("nested/hidden.out");
+    QTimer::singleShot(0,&window,[&]{
+      auto* dialog=qobject_cast<QDialog*>(QApplication::activeModalWidget());
+      auto* list=dialog?dialog->findChild<QListWidget*>():nullptr;
+      const auto matches=list?list->findItems(nested,Qt::MatchExactly):QList<QListWidgetItem*>{};
+      ok&=check(dialog&&dialog->objectName()=="folderGaussianSelection"&&matches.size()==1,
+                "folder drop lists Gaussian files in subfolders");
+      if(!dialog)return;
+      if(matches.isEmpty()){dialog->reject();return;}
+      matches.first()->setSelected(true);dialog->accept();
+    });
     QDropEvent drop(QPointF(20,20),Qt::CopyAction,&mime,Qt::LeftButton,Qt::NoModifier);window.dropEvent(&drop);
-    ok&=check(window.baseDirectory_->text()==folder.path()&&window.sourcePaths().isEmpty()&&!window.parsing_,"folder drop only sets base folder and imports no direct or nested files");
+    ok&=check(waitForImport(window)&&window.baseDirectory_->text()==folder.path()&&window.sourcePaths()==QStringList{nested},
+              "folder drop imports only the selected Gaussian files");
+    window.parsePaths({});
     QApplication::clipboard()->setText(stem+"\t"+stem+".out\r\nmissing.out");
     window.findChild<QGroupBox*>("importControls")->setChecked(true);window.fileNames_->paste();
     auto* add=window.findChild<QPushButton*>("addNamedFiles");if(!add)return false;window.findChild<QGroupBox*>("importControls")->setChecked(true);add->click();
@@ -1221,15 +1268,14 @@ struct Phase1Smoke {
     window.files_->selectRow(0);window.moveSelectedStructure(2);window.refreshDocumentModel();
     window.referencesText_->setPlainText("[1] SI output test reference.");
     window.siOutputPath_->setText(folder.filePath("SI.docx"));window.xyzOutputPath_->setText(folder.filePath("SI.xyz"));
-    chooseSiRendering(&window,QMessageBox::YesRole);
-    const int openPromptCount=window.property("siOpenPromptCount").toInt();
+    window.exportFigures_->setChecked(true);
     window.exportSiDocument();
     ok&=check(waitUntil([&]{return QFile::exists(window.xyzOutputPath_->text())&&window.status_->text().contains("생성 완료")&&window.status_->text().contains("SI.docx");}),"SI export UI flow");
-    ok&=check(window.property("siOpenPromptCount").toInt()==openPromptCount+1,"successful SI export asks whether to open the DOCX");
+    ok&=check(window.xyzOutputPath_->text()==folder.filePath("SI.xyz"),"combined export derives the XYZ path from the DOCX folder");
     ok&=check(!window.documentModel_.figures.isEmpty(),"rendering opt in retains molecular figures");
     window.captions_->setPlainText("Previously prepared Figure caption");window.refreshDocumentModel();
     window.siOutputPath_->setText(folder.filePath("tables-only.docx"));
-    chooseSiRendering(&window,QMessageBox::NoRole);window.exportSiDocument();
+    window.exportFigures_->setChecked(false);window.exportSiDocument();
     ok&=check(waitUntil([&]{return window.status_->text().contains("생성 완료")&&window.status_->text().contains("tables-only.docx");}),"table-only SI export skips figure setup");
     QFile tablesOnly(folder.filePath("tables-only.docx"));
     if(tablesOnly.open(QIODevice::ReadOnly)){
@@ -1238,9 +1284,6 @@ struct Phase1Smoke {
       ok&=check(bytes.contains("Cartesian Coordinates"),"table-only SI preserves coordinate data");
     }else ok=false;
     ok&=check(!window.preparedFigures_.isEmpty()&&window.captions_->toPlainText()=="Previously prepared Figure caption","table-only export preserves prepared figures and caption input");
-    window.siOutputPath_->setText(folder.filePath("cancelled.docx"));
-    chooseSiRendering(&window,QMessageBox::RejectRole);window.exportSiDocument();
-    ok&=check(!QFile::exists(window.siOutputPath_->text()),"cancel rendering choice does not create SI");
     window.xyzOutputPath_->setText(folder.filePath("Structures.xyz"));window.exportXyzDocument();
     QFile xyz(folder.filePath("Structures.xyz"));ok&=check(xyz.open(QIODevice::ReadOnly)&&xyz.readAll().replace("\r\n","\n").startsWith("1\n^{1}A-freq"),"Generate XYZ produces text");
     QString error;ok&=check(DocxWriter::writeCoordinates(folder.filePath("Coordinates.docx"),window.documentModel_,&error),"independent coordinates DOCX");
@@ -1441,15 +1484,6 @@ int main(int argc,char** argv){
   qputenv("SI_GENERATOR_TEST_SETTINGS","1");
   QApplication app(argc,argv);bool unexpectedModal=false;QTimer modalGuard;modalGuard.setInterval(4000);QObject::connect(&modalGuard,&QTimer::timeout,&app,[&]{if(auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget())){std::cerr<<"FAILED: unexpected modal: "<<box->text().toStdString()<<'\n';unexpectedModal=true;box->reject();}});modalGuard.start();{QSettings test("SI Generator","SIGeneratorTests");test.clear();}if(argc!=2)return 2;if(qEnvironmentVariableIsSet("SI_UI_STYLESHEET")){QFile css(qEnvironmentVariable("SI_UI_STYLESHEET"));if(css.open(QIODevice::ReadOnly))app.setStyleSheet(QString::fromUtf8(css.readAll()));}app.setStyle(QStyleFactory::create("Fusion"));MainWindow window;window.show();QCoreApplication::processEvents();
   auto* table=window.findChild<QTableWidget*>(QStringLiteral("structureList"));auto* viewer=window.findChild<MoleculeViewWidget*>(QStringLiteral("moleculeView"));auto* preview=window.findChild<DocumentPreviewWidget*>(QStringLiteral("documentPreview"));bool ok=Phase1Smoke::iconNavigation(window);
-  QTimer openDocumentResponder;
-  QObject::connect(&openDocumentResponder,&QTimer::timeout,&app,[]{
-    auto* box=qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
-    if(!box||box->objectName()!="siOpenDocument")return;
-    auto* owner=box->parentWidget();
-    owner->setProperty("siOpenPromptCount",owner->property("siOpenPromptCount").toInt()+1);
-    box->button(QMessageBox::Cancel)->click();
-  });
-  openDocumentResponder.start(20);
   ok&=Phase1Smoke::structureColumnsAndSpeReview(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::localHistory(QString::fromLocal8Bit(argv[1]));
   ok&=check(table&&viewer&&preview,"three-part UI components");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateSiButton"))!=nullptr,"SI generate button");ok&=check(window.findChild<QToolButton*>(QStringLiteral("generateXyzButton"))==nullptr,"combined SI+XYZ generation replaces separate toolbar action");

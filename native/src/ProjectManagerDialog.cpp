@@ -37,9 +37,9 @@ constexpr Theme themes[]={{"오션 블루","#2563a6","#e8f3ff","#f1f7fd"},{"세�
 ProjectManagerDialog::ProjectManagerDialog(QWidget* parent):QDialog(parent){
   setObjectName("projectManagerDialog");setWindowTitle(tr("SI Generator — 프로젝트 관리"));resize(940,830);
   setWindowFlag(Qt::WindowMaximizeButtonHint);setSizeGripEnabled(true);
-  auto* outer=new QVBoxLayout(this);outer->setContentsMargins(0,0,0,0);
+  auto* outer=new QVBoxLayout(this);outer->setContentsMargins(0,0,0,0);outer->setSpacing(0);
   auto* scroll=new QScrollArea(this);scroll->setObjectName("projectManagerScroll");scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-  auto* content=new QWidget(scroll);auto* layout=new QVBoxLayout(content);layout->setContentsMargins(28,24,28,24);layout->setSpacing(12);
+  auto* content=new QWidget(scroll);auto* layout=new QVBoxLayout(content);layout->setContentsMargins(28,24,28,12);layout->setSpacing(12);
   layout->setSizeConstraint(QLayout::SetMinAndMaxSize);scroll->setWidget(content);outer->addWidget(scroll);setMinimumSize(360,240);
   auto* header=new QHBoxLayout;auto* brand=new QLabel("SI GENERATOR",this);brand->setObjectName("managerBrand");header->addWidget(brand);header->addStretch();
   auto* themeGroup=new QButtonGroup(this);
@@ -57,7 +57,7 @@ ProjectManagerDialog::ProjectManagerDialog(QWidget* parent):QDialog(parent){
   connect(search_,&QLineEdit::textChanged,this,[this]{page_=0;renderProjects();});
   connect(favoritesOnly_,&QCheckBox::toggled,this,[this]{page_=0;renderProjects();});
   projects_=new QListWidget(this);projects_->setObjectName("recentProjectsList");projects_->setSpacing(5);projects_->setWordWrap(true);
-  projects_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);projects_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);projects_->setFixedHeight(308);layout->addWidget(projects_);
+  projects_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);projects_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);layout->addWidget(projects_);
   auto* paging=new QHBoxLayout;previous_=new QPushButton(tr("‹ 이전"),this);previous_->setObjectName("previousProjectPage");next_=new QPushButton(tr("다음 ›"),this);next_->setObjectName("nextProjectPage");pageLabel_=new QLabel(this);pageLabel_->setObjectName("projectPageLabel");paging->addStretch();paging->addWidget(previous_);paging->addWidget(pageLabel_);paging->addWidget(next_);layout->addLayout(paging);
   connect(previous_,&QPushButton::clicked,this,[this]{--page_;renderProjects();});connect(next_,&QPushButton::clicked,this,[this]{++page_;renderProjects();});
   auto* actions=new QHBoxLayout;open_=new QPushButton(tr("선택한 프로젝트 열기"),this);open_->setObjectName("openSelectedProject");auto* browse=new QPushButton(tr("기존 프로젝트가 있으신가요?"),this);browse->setObjectName("browseProjectButton");actions->addWidget(open_);actions->addWidget(browse);actions->addStretch();layout->addLayout(actions);
@@ -68,7 +68,16 @@ ProjectManagerDialog::ProjectManagerDialog(QWidget* parent):QDialog(parent){
   name_=new QLineEdit(this);name_->setObjectName("newProjectName");name_->setPlaceholderText(tr("예: Deformylation SI"));form->addRow(tr("프로젝트 이름"),name_);
   auto* directory=new QHBoxLayout;location_=new QLineEdit(this);location_->setObjectName("newProjectLocation");location_->setText(settings().value("projectLibraryDirectory",QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)+"/SI Generator Projects").toString());auto* folder=new QPushButton(tr("폴더 선택…"),this);directory->addWidget(location_,1);directory->addWidget(folder);form->addRow(tr("저장 위치"),directory);
   connect(folder,&QPushButton::clicked,this,[this]{const auto path=QFileDialog::getExistingDirectory(this,tr("프로젝트를 보관할 폴더"),location_->text());if(!path.isEmpty())location_->setText(path);});
-  auto* bottom=new QHBoxLayout;auto* create=new QPushButton(tr("선택한 프로젝트 관리 시작!"),this);create->setObjectName("createProjectButton");create->setDefault(true);bottom->addWidget(create);bottom->addStretch();auto* close=new QPushButton(tr("오늘은 여기까지..."),this);bottom->addWidget(close);layout->addLayout(bottom);
+  layout->addStretch();
+  auto* footer=new QWidget(this);
+  auto* bottom=new QHBoxLayout(footer);
+  bottom->setContentsMargins(28,10,28,16);
+  auto* create=new QPushButton(tr("선택한 프로젝트 관리 시작!"),footer);
+  create->setObjectName("createProjectButton");create->setDefault(true);
+  bottom->addWidget(create);bottom->addStretch();
+  auto* close=new QPushButton(tr("오늘은 여기까지..."),footer);
+  close->setObjectName("closeProjectManagerButton");bottom->addWidget(close);
+  outer->addWidget(footer);
   connect(create,&QPushButton::clicked,this,&ProjectManagerDialog::createProject);connect(close,&QPushButton::clicked,this,&QDialog::reject);
   const int theme=std::clamp(settings().value("projectManagerTheme",0).toInt(),0,2);themeGroup->button(theme)->setChecked(true);applyTheme(theme);refreshProjects();
 }
@@ -155,6 +164,10 @@ void ProjectManagerDialog::renderProjects(const QString& preferredPath){
     projects_->setItemWidget(item,card);item->setToolTip(available?path:error);
   }
   if(paths.isEmpty()){auto* empty=new QListWidgetItem(query.isEmpty()&&!onlyFavorites?tr("최근 프로젝트가 없습니다. 새 프로젝트를 만들거나 기존 프로젝트를 찾아 여세요."):tr("일치하는 프로젝트가 없습니다."),projects_);empty->setFlags(Qt::NoItemFlags);}
+  int listHeight=2*projects_->frameWidth();
+  for(int row=0;row<projects_->count();++row)
+    listHeight+=projects_->sizeHintForRow(row)+2*projects_->spacing();
+  projects_->setFixedHeight(listHeight);
   open_->setEnabled(false);if(!paths.isEmpty()){int current=0;for(int i=0;i<projects_->count();++i)if(projects_->item(i)->data(Qt::UserRole).toString()==preferredPath)current=i;projects_->setCurrentRow(current);}
 }
 

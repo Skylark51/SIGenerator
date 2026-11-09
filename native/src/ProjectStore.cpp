@@ -21,7 +21,7 @@ QJsonValue portablePaths(const QJsonValue& value,const QDir& folder,bool loading
     const auto object=value.toObject();
     for(auto it=object.begin();it!=object.end();++it){
       const auto converted=portablePaths(QJsonValue(it.key()),folder,loading);
-      output.insert(converted.toString(it.key()),portablePaths(it.value(),folder,loading));
+      output.insert(converted.toString(it.key()),it.key()=="captions"?it.value():portablePaths(it.value(),folder,loading));
     }
     return output;
   }

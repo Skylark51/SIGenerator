@@ -164,11 +164,57 @@ QWidget* MainWindow::createInputPanel(){
   };
   connect(includeDispersion_,&QCheckBox::toggled,this,updateRelativeOrder);
   connect(includeComplexation_,&QCheckBox::toggled,this,updateRelativeOrder);
-  updateRelativeOrder();layout->addWidget(energySection_);
+  auto updateEnergyRows=[this,energy,relativeOrder]{
+    const bool manual=energyInputMode_->currentData().toString()=="manual";
+    const auto mode=referenceMode_->currentData().toString();
+    energy->setRowVisible(referenceMode_,!manual);
+    energy->setRowVisible(reference_,!manual&&mode=="single");
+    energy->setRowVisible(manualReference_,!manual&&mode=="manual_numeric");
+    energy->setRowVisible(energyBasis_,!manual);
+    refreshManualAbsoluteRows();
+    for(auto* field:{manualRelativeNames_,manualRelativeValues_})energy->setRowVisible(field,manual);
+    energy->setRowVisible(relativeOrder,manual);
+  };
+  connect(energyInputMode_,&QComboBox::currentIndexChanged,this,updateEnergyRows);
+  connect(referenceMode_,&QComboBox::currentIndexChanged,this,updateEnergyRows);
+  connect(includeAbsolute_,&QCheckBox::toggled,this,updateEnergyRows);
+  updateRelativeOrder();updateEnergyRows();layout->addWidget(energySection_);
   spinSection_=section(tr("Mulliken 스핀 밀도 (Spin Density)"),content,true);auto* spin=new QFormLayout(spinSection_);spinNames_=new QTextEdit(spinSection_);spinNames_->setPlaceholderText(tr("구조명 — 비우면 구조 목록 사용 (Structure Labels)"));spinNames_->setFixedHeight(45);spin->addRow(spinNames_);spinIndices_=new QTextEdit(spinSection_);spinIndices_->setPlaceholderText(tr("원자 ID — 비우면 절댓값 상위 6개 자동 선택 (Atom IDs)"));spinIndices_->setFixedHeight(45);spin->addRow(spinIndices_);spinAtomNumbers_=new QCheckBox(tr("원자 번호 표시 (Show Atom Numbers)"),spinSection_);spinAtomNumbers_->setObjectName("spinAtomNumbers");spinAtomNumbers_->setChecked(true);spin->addRow(spinAtomNumbers_);layout->addWidget(spinSection_);
   geometrySection_=section(tr("선택 구조 (Selected Geometry)"),content,true);auto* geometry=new QFormLayout(geometrySection_);geometryNames_=new QTextEdit(geometrySection_);geometryNames_->setPlaceholderText(tr("구조명 — 비우면 구조 목록 사용 (Structure Labels)"));geometryNames_->setFixedHeight(45);geometry->addRow(geometryNames_);geometryIndices_=new QTextEdit(geometrySection_);geometryIndices_->setPlaceholderText(tr("2/3/4개 원자 ID: 거리/각/이면각 — 비우면 RMSD 자동 분석"));geometryIndices_->setFixedHeight(55);geometry->addRow(geometryIndices_);geometryAtomNumbers_=new QCheckBox(tr("원자 번호 표시 (Show Atom Numbers)"),geometrySection_);geometryAtomNumbers_->setObjectName("geometryAtomNumbers");geometryAtomNumbers_->setChecked(true);geometry->addRow(geometryAtomNumbers_);geometryAutoInfo_=new QLabel(geometrySection_);geometryAutoInfo_->setWordWrap(true);geometryAutoInfo_->setObjectName("geometryAutoInfo");geometry->addRow(geometryAutoInfo_);auto* addGeometry=new QPushButton(tr("클릭 선택 추가 (Add Click Selection)"),geometrySection_);connect(addGeometry,&QPushButton::clicked,this,&MainWindow::appendSelectedGeometry);geometry->addRow(addGeometry);layout->addWidget(geometrySection_);
-  auto* documentBox=section(tr("문서와 출력 (Document & Output)"),content);documentSection_=documentBox;auto* document=new QFormLayout(documentBox);documentTitle_=new QLineEdit(QStringLiteral("Supporting Information"),documentBox);document->addRow(tr("문서 제목 (Document Title)"),documentTitle_);mechanismName_=new QLineEdit(documentBox);mechanismName_->setPlaceholderText(tr("반응/메커니즘 이름 (Mechanism Name)"));document->addRow(tr("메커니즘 (Mechanism)"),mechanismName_);decimalPlaces_=new QSpinBox(documentBox);decimalPlaces_->setRange(0,10);decimalPlaces_->hide(); /* Retain legacy project-field compatibility; precision is defined per quantity. */ captions_=new QTextEdit(documentBox);captions_->setPlaceholderText(tr("그림 캡션 — Figure 그룹당 한 줄 (첫 3개, 이후 2개)"));captions_->setFixedHeight(60);document->addRow(captions_);siOutputPath_=new QLineEdit(documentBox);siOutputPath_->setPlaceholderText(tr("SI DOCX 출력 경로 (SI Output Path)"));document->addRow(siOutputPath_);xyzOutputPath_=new QLineEdit(documentBox);xyzOutputPath_->setPlaceholderText(tr("XYZ 출력 경로 (*.xyz)"));document->addRow(xyzOutputPath_);manuscriptTitle_=new QLineEdit(documentBox);manuscriptTitle_->setObjectName("manuscriptTitle");document->addRow("Manuscript title",manuscriptTitle_);
-  auto* prepare=new QPushButton(tr("분자 Figure 뷰 설정 (첫 3개 · 이후 2개)"),documentBox);prepare->setObjectName("prepareFiguresButton");document->addRow(prepare);
+  auto* documentBox=section(tr("문서와 출력 (Document & Output)"),content);documentSection_=documentBox;auto* document=new QFormLayout(documentBox);documentTitle_=new QLineEdit(QStringLiteral("Supporting Information"),documentBox);document->addRow(tr("문서 제목 (Document Title)"),documentTitle_);mechanismName_=new QLineEdit(documentBox);mechanismName_->setPlaceholderText(tr("반응/메커니즘 이름 (Mechanism Name)"));document->addRow(tr("메커니즘 (Mechanism)"),mechanismName_);decimalPlaces_=new QSpinBox(documentBox);decimalPlaces_->setRange(0,10);decimalPlaces_->hide(); /* Retain legacy project-field compatibility; precision is defined per quantity. */ captions_=new QTextEdit(documentBox);captions_->setPlaceholderText(tr("그림 캡션 — Figure 그룹당 한 줄 (첫 3개, 이후 2개)"));captions_->setFixedHeight(60);captions_->hide();siOutputPath_=new QLineEdit(documentBox);siOutputPath_->setPlaceholderText(tr("SI DOCX 출력 경로 (SI Output Path)"));document->addRow(siOutputPath_);xyzOutputPath_=new QLineEdit(documentBox);xyzOutputPath_->setPlaceholderText(tr("XYZ 출력 경로 (*.xyz)"));xyzOutputPath_->hide();manuscriptTitle_=new QLineEdit(documentBox);manuscriptTitle_->setObjectName("manuscriptTitle");document->addRow("Manuscript title",manuscriptTitle_);
+  auto* browseOutput=new QPushButton(tr("DOCX 저장 위치 선택…"),documentBox);
+  document->addRow(browseOutput);
+  connect(browseOutput,&QPushButton::clicked,this,[this]{
+    const auto current=siOutputPath_->text().trimmed();
+    const auto path=QFileDialog::getSaveFileName(this,tr("SI DOCX 저장 위치"),
+      current.isEmpty()?QDir(baseDirectory_->text()).filePath("SI.docx"):current,tr("Word Document (*.docx)"));
+    if(!path.isEmpty())siOutputPath_->setText(path.endsWith(".docx",Qt::CaseInsensitive)?path:path+".docx");
+  });
+  auto* xyzDestination=new QLabel(documentBox);xyzDestination->setWordWrap(true);
+  document->addRow(tr("함께 저장할 XYZ"),xyzDestination);
+  auto updateXyz=[xyzDestination](const QString& text){
+    auto path=text.trimmed();
+    if(!path.isEmpty()&&!path.endsWith(".docx",Qt::CaseInsensitive))path+=".docx";
+    xyzDestination->setText(path.isEmpty()?QObject::tr("DOCX와 같은 폴더"):MainWindow::xyzPathForDocx(path));
+  };
+  connect(siOutputPath_,&QLineEdit::textChanged,this,updateXyz);updateXyz(siOutputPath_->text());
+  auto exportOption=[this,document,documentBox](const QString& label,const QString& key){
+    auto* option=new QCheckBox(label,documentBox);
+    option->setObjectName(key);option->setChecked(windowSettings().value("export/"+key,false).toBool());
+    connect(option,&QCheckBox::toggled,this,[key](bool checked){windowSettings().setValue("export/"+key,checked);});
+    document->addRow(option);
+    return option;
+  };
+  exportFigures_=exportOption(tr("SI에 Figure 포함"),"includeFigures");
+  openExportInWord_=exportOption(tr("생성 후 Word에서 열기"),"openInWord");
+  archiveExport_=exportOption(tr("생성된 DOCX를 프로젝트 버전 이력에 보관"),"archiveDocx");
+  auto* pagePreview=new QPushButton(tr("Word 페이지 미리보기…"),documentBox);
+#ifndef Q_OS_WIN
+  pagePreview->setEnabled(false);
+#endif
+  document->addRow(pagePreview);
+  connect(pagePreview,&QPushButton::clicked,this,&MainWindow::previewWordPages);
+  auto* prepare=new QPushButton(tr("Figure 구성 및 캡션 편집…"),documentBox);prepare->setObjectName("prepareFiguresButton");document->addRow(prepare);
   connect(prepare,&QPushButton::clicked,this,[this]{prepareFigures();});
   authors_=new QLineEdit(documentBox);document->addRow("Authors",authors_);
   affiliations_=new QLineEdit(documentBox);document->addRow("Affiliations",affiliations_);
@@ -176,7 +222,22 @@ QWidget* MainWindow::createInputPanel(){
   computationalDetails_=new QTextEdit(documentBox);computationalDetails_->setObjectName("computationalDetails");computationalDetails_->setMinimumHeight(120);document->addRow("Computational Details",computationalDetails_);
   connect(computationalDetails_,&QTextEdit::textChanged,this,[this]{detailsEdited_=true;});
   auto* regenerate=new QPushButton("Regenerate computational details",documentBox);document->addRow(regenerate);
-  connect(regenerate,&QPushButton::clicked,this,[this]{detailsEdited_=false;scheduleDocumentRefresh();});
+  restoreDetails_=new QPushButton(tr("재생성 전 수동 설명 복구"),documentBox);
+  restoreDetails_->setEnabled(false);document->addRow(restoreDetails_);
+  connect(regenerate,&QPushButton::clicked,this,[this]{
+    if(detailsEdited_){
+      previousDetails_=computationalDetails_->toPlainText();
+      restoreDetails_->setEnabled(true);
+    }
+    detailsEdited_=false;refreshDocumentModel();
+    windowSettings().setValue("documentDraft/detailsEdited",false);
+  });
+  connect(restoreDetails_,&QPushButton::clicked,this,[this]{
+    detailsEdited_=true;computationalDetails_->setPlainText(previousDetails_);
+    previousDetails_.clear();restoreDetails_->setEnabled(false);
+    windowSettings().setValue("documentDraft/detailsEdited",true);
+    scheduleDocumentRefresh();
+  });
   referencesText_=new QTextEdit(documentBox);referencesText_->setFixedHeight(60);referencesText_->setObjectName("referencesText");document->addRow("References",referencesText_);
   auto* publishedRefs=new QPushButton(tr("출판 논문 계산 문헌 S24–S29 선택·추가"),documentBox);publishedRefs->setObjectName("publishedReferenceLibrary");document->addRow(publishedRefs);
   connect(publishedRefs,&QPushButton::clicked,this,[this]{
@@ -291,7 +352,7 @@ QWidget* MainWindow::createQuickToolbar(){
   navigation_->button(0)->setChecked(true);bar->addSeparator();bar->addWidget(new QLabel(tr("분자  "),bar));
   auto* indices=add("toggleAtomIndices",tr("원자 번호 표시 / 숨기기"),navigationIcon("indices",QColor("#746197")),[this]{moleculeView_->setAtomIndicesVisible(!moleculeView_->atomIndicesVisible());});indices->setCheckable(true);indices->setChecked(moleculeView_->atomIndicesVisible());
   add("resetMolecularView",tr("분자 보기 초기화"),navigationIcon("reset",QColor("#746197")),[this]{moleculeView_->resetView();});
-  add("prepareFiguresAction",tr("분자 Figure 뷰 설정"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});
+  add("prepareFiguresAction",tr("Figure 구성 및 캡션 편집"),navigationIcon("figure",QColor("#746197")),[this]{prepareFigures();});
   bar->addSeparator();bar->addWidget(new QLabel(tr("내보내기  "),bar));
   auto* generateSi=add("generateSiButton",tr("전체 SI DOCX 생성"),navigationIcon("si",QColor("#087e8b")),[this]{exportSiDocument();});
   generateSi->setText(tr("Generate SI + XYZ"));generateSi->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);generateSi->setFixedWidth(185);
@@ -305,4 +366,11 @@ void MainWindow::scrollTo(QWidget* target){
   for(int i=0;i<inputPages_->count();++i)if(inputPages_->widget(i)->isAncestorOf(target)){inputPages_->setCurrentIndex(i);break;}
   if(auto* box=qobject_cast<QGroupBox*>(target);box&&box->isCheckable())box->setChecked(true);
   if(target->parentWidget()!=inputScroll_->widget())inputScroll_->ensureWidgetVisible(target,10,10);
+}
+
+void MainWindow::refreshManualAbsoluteRows(){
+  auto* form=static_cast<QFormLayout*>(energySection_->layout());
+  const bool visible=energyInputMode_->currentData().toString()=="manual"&&absoluteEnergyRequested();
+  form->setRowVisible(manualAbsoluteNames_,visible);
+  form->setRowVisible(manualAbsoluteValues_,visible);
 }

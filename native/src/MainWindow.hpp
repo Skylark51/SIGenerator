@@ -14,6 +14,7 @@
 struct ProjectState;
 class DocumentPreviewWidget;
 class MoleculeViewWidget;
+class QTemporaryDir;
 class QButtonGroup;
 class QSplitter;
 class QTabWidget;
@@ -58,6 +59,8 @@ private:
   void refreshStageNavigation();
   void configureStructureColumns(QToolButton* button);
   void refreshStageWorkspace();
+  bool absoluteEnergyRequested() const;
+  void refreshManualAbsoluteRows();
   void updateStructureStatusCells();
   void refreshScopedPreview();
   void chooseStageScope(int stage);
@@ -68,6 +71,7 @@ private:
   void addExistingStageStructures();
   void removeStageStructure();
   void clearStageStructures();
+  [[nodiscard]] static QString stageReferencePath(const QJsonObject& stage, const QStringList& paths);
   [[nodiscard]] bool stageNeedsManualRelative(int index) const;
   [[nodiscard]] bool stageStructureNeedsRelative(const QJsonObject& stage, const QString& path) const;
   [[nodiscard]] QStringList stageRelativeRow(const QJsonObject& stage, const QString& path, const QStringList& headers, QStringList row) const;
@@ -83,7 +87,6 @@ private:
   QLineEdit* stageNameEdit_{};
   QLineEdit* stageLabelEdit_{};
   QLabel* stageLabelPreview_{};
-  QTextEdit* stageFigureCaptions_{};
   QComboBox* stageReference_{};
   QCheckBox* stageManualRelativeToggle_{};
   QCheckBox* stageStructureRelativeToggle_{};
@@ -127,8 +130,18 @@ private:
   void applyReactionStages(si::SIDocumentModel& model);
   QJsonArray reactionStages_;
   void exportSiDocument();
+  static QString xyzPathForDocx(const QString& path);
   void applyNamedLabelsForExport();
-  bool prepareFigures(bool preflightDone=false);
+  bool prepareFigures(bool preflightDone=false,bool interactive=true);
+  bool prepareSiExport();
+  void previewWordPages();
+  static void runWordOperation(QWidget* parent,const QString& source,const QString& revised={},
+                               std::shared_ptr<QTemporaryDir> draft={});
+  QCheckBox* exportFigures_{};
+  QCheckBox* openExportInWord_{};
+  QCheckBox* archiveExport_{};
+  QPushButton* restoreDetails_{};
+  QString previousDetails_;
   QJsonObject figureSettings_;
   QVector<si::DocumentFigure> preparedFigures_;
   QHash<QString,QVector<si::DocumentFigure>> preparedStageFigures_;

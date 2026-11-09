@@ -179,7 +179,8 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
         "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>")
         .arg(cx).arg(cy).arg(i+1).arg(xml(figure.structureNames.join(" / ")));
     }
-    const auto caption=model.figureCaptions.value(i,i<model.figures.size()?model.figures[i].structureNames.join(" / "):QString());
+    const auto customCaption=model.figureCaptions.value(i);
+    const auto caption=customCaption.isEmpty()&&i<model.figures.size()?model.figures[i].structureNames.join(" / "):customCaption;
     body+=sequenceCaption("Figure S","Figure_S",++figureNumber,caption);
   }
   ;int tableNumber=0;

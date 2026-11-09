@@ -118,8 +118,14 @@ bool MainWindow::validateExport(){
   QMessageBox::warning(this,tr("Preflight Error"),errors.join('\n'));return false;
 }
 
+bool MainWindow::absoluteEnergyRequested() const{
+  return includeAbsolute_->isChecked()||std::any_of(reactionStages_.begin(),reactionStages_.end(),[](const auto& value){
+    return value.toObject().value("absolute").toBool(false);
+  });
+}
+
 si::SIDocumentModel MainWindow::buildDocumentModel(){
-  si::SIDocumentModel model;model.title=documentTitle_->text().trimmed().isEmpty()?QStringLiteral("Supporting Information"):documentTitle_->text().trimmed();model.mechanismName=mechanismName_->text().trimmed();model.figureCaptions=lines(captions_->toPlainText());model.precisionOverride=0;const int precision=0;const bool absoluteRequested=includeAbsolute_->isChecked()||std::any_of(reactionStages_.begin(),reactionStages_.end(),[](const auto& value){return value.toObject().value("absolute").toBool(false);});const auto labels=structureLabels();const auto paths=sourcePaths();
+  si::SIDocumentModel model;model.title=documentTitle_->text().trimmed().isEmpty()?QStringLiteral("Supporting Information"):documentTitle_->text().trimmed();model.mechanismName=mechanismName_->text().trimmed();model.figureCaptions=lines(captions_->toPlainText());model.precisionOverride=0;const int precision=0;const bool absoluteRequested=absoluteEnergyRequested();const auto labels=structureLabels();const auto paths=sourcePaths();
   model.manuscriptTitle=manuscriptTitle_->text();model.authors=authors_->text();model.affiliations=affiliations_->text();model.correspondingEmail=correspondingEmail_->text();model.referencesText=referencesText_->toPlainText();
   auto records=energyRecords();geometryAutoInfo_->clear();
   const auto detailsBasis=energyInputMode_->currentData().toString()==QStringLiteral("automatic")&&referenceMode_->currentData().toString()==QStringLiteral("single")
@@ -133,8 +139,15 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
   for(const auto& value:reactionStages_){const auto stage=value.toObject();signatureStream<<stage.value("id").toString(stage["name"].toString());for(const auto& path:stage["files"].toArray())signatureStream<<path.toString();}
   const auto signature=QCryptographicHash::hash(geometryBytes,QCryptographicHash::Sha256);
   if(signature!=figureSignature_){preparedFigures_.clear();preparedStageFigures_.clear();figureSignature_=signature;}
+  auto figureCaptions=[](const QJsonObject& settings,const QStringList& legacy){
+    if(!settings.contains("captions"))return legacy;
+    QStringList captions;
+    for(const auto& entry:settings.value("captions").toArray())captions.append(entry.toString());
+    return captions;
+  };
   model.figures=preparedFigures_;
-  if(!reactionStages_.isEmpty()){model.figures.clear();model.figureCaptions.clear();for(const auto& value:reactionStages_){const auto stage=value.toObject();const auto id=stage.value("id").toString(stage["name"].toString());const auto captions=lines(stage["figure_captions"].toString());const auto figures=preparedStageFigures_.value(id);for(int i=0;i<figures.size();++i){auto figure=figures[i];figure.stageId=id;figure.documentNumber=model.figures.size()+1;model.figures.append(figure);model.figureCaptions.append(captions.value(i,stage["name"].toString()+" — "+figure.structureNames.join(" / ")));}}}
+  model.figureCaptions=figureCaptions(figureSettings_,model.figureCaptions);
+  if(!reactionStages_.isEmpty()){model.figures.clear();model.figureCaptions.clear();for(const auto& value:reactionStages_){const auto stage=value.toObject();const auto id=stage.value("id").toString(stage["name"].toString());const auto captions=figureCaptions(stage["figure_settings"].toObject(),lines(stage["figure_captions"].toString()));const auto figures=preparedStageFigures_.value(id);for(int i=0;i<figures.size();++i){auto figure=figures[i];figure.stageId=id;figure.documentNumber=model.figures.size()+1;model.figures.append(figure);model.figureCaptions.append(captions.value(i).isEmpty()?stage["name"].toString()+" — "+figure.structureNames.join(" / "):captions.value(i));}}}
   if(energyInputMode_->currentData().toString()==QStringLiteral("manual")){
     if(absoluteRequested){si::DocumentTable table{si::DocumentSection::AbsoluteEnergy,tr("Absolute energy values of %1 in Kcal/Mol.").arg(si::displayMechanism(model)),{QString(),QStringLiteral("E_{Def2-SVP}"),QStringLiteral("E_{Def2-TZVPP}"),QStringLiteral("Z_{0}"),QStringLiteral("E_{Thermal}"),QStringLiteral("S"),QStringLiteral("Dispersion")},{},{}};const auto names=lines(manualAbsoluteNames_->toPlainText());const auto rows=valueRows(manualAbsoluteValues_->toPlainText());for(int i=0;i<std::max(names.size(),rows.size());++i){QStringList row{i<names.size()?names[i]:QString()};if(i<rows.size())for(const auto& value:rows[i])row.append(manualNumber(value,precision));table.rows.append(row);}if(!table.rows.isEmpty())model.tables.append(table);}
     si::DocumentTable table{si::DocumentSection::RelativeEnergy,tr("Relative energy values of %1 in Kcal/Mol.").arg(si::displayMechanism(model)),{QString(),QStringLiteral("ΔE"),QStringLiteral("ΔΔE^{a}"),QStringLiteral("E_{Total}"),QStringLiteral("ΔZ_{0}"),QStringLiteral("ΔΔE_{Thermal}^{b}"),QStringLiteral("-TΔS^{b}"),QStringLiteral("Δ_{Dispersion}"),QStringLiteral("Δ_{Complexation}"),QStringLiteral("ΔG^{c}")},{},{}};
@@ -274,7 +287,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
 }
 
 void MainWindow::scheduleDocumentRefresh(){if(previewTimer_)previewTimer_->start();}
-void MainWindow::refreshDocumentModel(){if(parsing_)return;refreshPreflight();refreshStageNavigation();documentModel_=buildDocumentModel();refreshStageWorkspace();refreshScopedPreview();}
+void MainWindow::refreshDocumentModel(){if(parsing_)return;refreshManualAbsoluteRows();refreshPreflight();refreshStageNavigation();documentModel_=buildDocumentModel();refreshStageWorkspace();refreshScopedPreview();}
 void MainWindow::updateGeometryFeedback(const QVector<int>& ids){if(ids.isEmpty()){interactionInfo_->setText(tr("원자 2/3/4개를 순서대로 선택하세요. (Select 2/3/4 atoms.)"));return;}const int row=files_->currentRow();if(row<0)return;const auto result=parsed_.value(files_->item(row,0)->data(Qt::UserRole).toString());if(!result)return;QStringList labels;for(const int id:ids)labels.append(atomLabel(*result,id));QString value;if(ids.size()==2){const auto calculated=si::distance(result->finalGeometry,ids[0],ids[1]);if(calculated)value=QStringLiteral(" = %1 Å").arg(*calculated,0,'f',3);}else if(ids.size()==3){const auto calculated=si::angle(result->finalGeometry,ids[0],ids[1],ids[2]);if(calculated)value=QStringLiteral(" = %1°").arg(*calculated,0,'f',3);}else if(ids.size()==4){const auto calculated=si::dihedral(result->finalGeometry,ids[0],ids[1],ids[2],ids[3]);if(calculated)value=QStringLiteral(" = %1°").arg(*calculated,0,'f',3);}interactionInfo_->setText(labels.join(QStringLiteral(" – "))+value);}
 
 void MainWindow::applyReactionStages(si::SIDocumentModel& model){
@@ -355,8 +368,9 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
         tables.append(split);continue;
       }
       if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single"&&!selected.empty()){
-        size_t ref=0;for(size_t i=0;i<selected.size();++i)if(QFileInfo(QString::fromStdWString(selected[i].frequency.path.wstring())).absoluteFilePath().compare(QFileInfo(stage["reference"].toString()).absoluteFilePath(),Qt::CaseInsensitive)==0)ref=i;
-        const auto relative=si::legacyRelativeEnergies(selected,selected[ref],includeDispersion_->isChecked(),includeComplexation_->isChecked());
+        const int ref=paths.indexOf(stageReferencePath(stage,paths));
+        const auto& reference=ref>=0&&ref<static_cast<int>(records.size())?records[ref]:selected.front();
+        const auto relative=si::legacyRelativeEnergies(selected,reference,includeDispersion_->isChecked(),includeComplexation_->isChecked());
         split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
         for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}
       }

@@ -11,6 +11,9 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
+#include <QDirIterator>
+#include <QDialogButtonBox>
+#include <QListWidget>
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QHeaderView>
@@ -108,7 +111,35 @@ void MainWindow::dropEvent(QDropEvent* event){
   for(const auto& url:event->mimeData()->urls())if(url.isLocalFile()){
     paths.append(url.toLocalFile());
   }
-  acceptPaths(paths);
+  QStringList files, candidates;
+  for(const auto& path:paths){
+    if(!QFileInfo(path).isDir()){files.append(path);continue;}
+    baseDirectory_->setText(path);
+    QDirIterator scan(path,{"*.log","*.out"},QDir::Files|QDir::Readable,QDirIterator::Subdirectories);
+    while(scan.hasNext())candidates.append(scan.next());
+  }
+  candidates.removeDuplicates();
+  for(const auto& file:files)candidates.removeAll(file);
+  candidates.sort(Qt::CaseInsensitive);
+  if(!candidates.isEmpty()){
+    QDialog dialog(this);
+    dialog.setObjectName("folderGaussianSelection");
+    dialog.setWindowTitle(tr("폴더에서 발견한 Gaussian 출력"));
+    dialog.resize(760,420);
+    auto* layout=new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(tr("가져올 파일을 선택하세요. Ctrl 또는 Shift로 여러 파일을 선택할 수 있습니다."),&dialog));
+    auto* list=new QListWidget(&dialog);
+    list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    list->addItems(candidates);layout->addWidget(list);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+    layout->addWidget(buttons);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    if(dialog.exec()!=QDialog::Accepted)return;
+    for(const auto* item:list->selectedItems())files.append(item->text());
+  }
+  if(files.isEmpty())status_->setText(tr("가져올 Gaussian 출력(.log, .out)이 선택되지 않았습니다."));
+  else {files.removeDuplicates();parsePaths(files,true);}
   event->acceptProposedAction();
 }
 void MainWindow::linkSinglePoint(){

@@ -25,6 +25,7 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QPushButton>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSet>
 #include <QTextEdit>
@@ -35,8 +36,55 @@
 #include <cmath>
 
 namespace {
+void populateStageReferences(QComboBox* combo, const QStringList& paths, const QStringList& labels,
+                             const QJsonArray& members, const QString& reference){
+  const QSignalBlocker blocked(combo);
+  combo->clear();
+  auto add = [&](int index, bool external){
+    const auto& path=paths[index];
+    auto label=labels.value(index);
+    if(external)label+=MainWindow::tr(" · 단계 외 구조 (%1)").arg(QFileInfo(path).fileName());
+    combo->addItem(label,path);
+    combo->setItemData(combo->count()-1,path,Qt::ToolTipRole);
+  };
+  for(const auto& member:members){
+    const int index=paths.indexOf(member.toString());
+    if(index>=0)add(index,false);
+  }
+  for(int i=0;i<paths.size();++i)if(!members.contains(paths[i]))add(i,true);
+  combo->setCurrentIndex(reference.isEmpty()?-1:combo->findData(reference));
+}
+
 QString stageId(const QJsonObject& stage){return stage.value("id").toString(stage["name"].toString());}
 const QStringList tableKeys={"absolute","relative","spin","geometry"};
+
+bool formatSelectedLabel(QLineEdit* edit,const QString& marker){
+  int start=edit->selectionStart();
+  if(start<0)return false;
+  const auto selection=edit->selectedText();
+  const auto text=edit->text();
+  const auto prefix=text.mid(start-2,2);
+  if(start>=2&&(prefix=="^{"||prefix=="_{")&&!selection.contains('{')&&!selection.contains('}')
+     &&text.mid(start+selection.size(),1)=="}"){
+    if(prefix==marker+"{")return true;
+    start-=2;
+    edit->setSelection(start,selection.size()+3);
+  }
+  edit->insert(marker+"{"+selection+"}");
+  edit->setFocus();
+  edit->setSelection(start+2,selection.size());
+  return true;
+}
+
+void bindLabelFormatShortcut(QWidget* target,QPushButton* button,Qt::Key key){
+  const QKeySequence keys(QKeyCombination(Qt::ControlModifier|Qt::ShiftModifier,key));
+  auto* shortcut=new QShortcut(keys,target);
+  shortcut->setContext(Qt::WidgetShortcut);
+  shortcut->setAutoRepeat(false);
+  QObject::connect(shortcut,&QShortcut::activated,button,&QPushButton::click);
+  button->setToolTip(QCoreApplication::translate("MainWindow","선택 구조명 입력칸에서 글자를 선택한 뒤 누르세요. 단축키 %1")
+    .arg(keys.toString(QKeySequence::NativeText)));
+}
 }
 
 QWidget* MainWindow::createStageNavigation(){
@@ -103,7 +151,10 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
     auto stage=reactionStages_[activeStage_].toObject();stage["manual_relative_values"]=stageManualRelativeValues_->toPlainText();
     reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();
   });
-  auto* figureBox=new QGroupBox(tr("이 반응 Figure · 캡션"),stageSettings_);figureBox->setCheckable(true);auto* figureLayout=new QVBoxLayout(figureBox);stageFigureCaptions_=new QTextEdit(figureBox);stageFigureCaptions_->setObjectName("activeStageFigureCaptions");stageFigureCaptions_->setFixedHeight(54);stageFigureCaptions_->setPlaceholderText(tr("Figure 그룹별 한 줄 · 비우면 반응명과 구조명 사용"));figureLayout->addWidget(stageFigureCaptions_);auto* prepare=new QPushButton(tr("이 반응 Figure 뷰 설정…"),figureBox);figureLayout->addWidget(prepare);connect(prepare,&QPushButton::clicked,this,[this]{prepareFigures();});connect(figureBox,&QGroupBox::toggled,this,[figureBox](bool open){for(auto* child:figureBox->findChildren<QWidget*>(QString(),Qt::FindDirectChildrenOnly))child->setVisible(open);});figureBox->setChecked(false);stageLayout->addWidget(figureBox);connect(stageFigureCaptions_,&QTextEdit::textChanged,this,[this]{if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["figure_captions"]=stageFigureCaptions_->toPlainText();reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});stageSettings_->hide();
+  auto* prepare=new QPushButton(tr("이 반응 Figure 구성 및 캡션 편집…"),stageSettings_);
+  stageLayout->addWidget(prepare);
+  connect(prepare,&QPushButton::clicked,this,[this]{prepareFigures();});
+  stageSettings_->hide();
   connect(stageNameEdit_,&QLineEdit::textEdited,this,[this](const QString& text){if(updatingStageWorkspace_||activeStage_<0||text.trimmed().isEmpty())return;auto stage=reactionStages_[activeStage_].toObject();stage["name"]=text;reactionStages_[activeStage_]=stage;refreshStageNavigation();scheduleDocumentRefresh();});
   connect(stageNameEdit_,&QLineEdit::editingFinished,this,[this]{if(!updatingStageWorkspace_&&activeStage_>=0&&stageNameEdit_->text().trimmed().isEmpty())refreshStageWorkspace();});
   connect(stageReference_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["reference"]=stageReference_->currentData().toString();reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});
@@ -124,10 +175,52 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   layout->insertLayout(2,actions);
   auto* order=new QHBoxLayout;for(int delta:{-1,1}){auto* button=new QPushButton(delta<0?tr("↑ 위로"):tr("↓ 아래로"),box);button->setObjectName(delta<0?"moveStructureUp":"moveStructureDown");order->addWidget(button);connect(button,&QPushButton::clicked,this,[this,delta]{moveStageStructure(delta);});}
   auto* moveTo=new QPushButton(tr("위치 지정"),box);moveTo->setObjectName("moveStructureTo");order->addWidget(moveTo);connect(files_,&QTableWidget::itemSelectionChanged,this,&MainWindow::updateStructureOrderButtons);connect(stageGrid_,&QTableWidget::currentCellChanged,this,[this]{updateStructureOrderButtons();});connect(moveTo,&QPushButton::clicked,this,[this]{if(stageGrid_->currentRow()<0)return;bool accepted=false;int target=QInputDialog::getInt(this,tr("구조 위치"),tr("이동할 위치"),stageGrid_->currentRow()+1,1,stageGrid_->rowCount(),1,&accepted);if(accepted)moveStageStructure(target-1-stageGrid_->currentRow());});layout->addLayout(order);
-  auto* nameRow=new QHBoxLayout;stageLabelEdit_=new QLineEdit(box);stageLabelEdit_->setObjectName("workspaceStructureName");stageLabelEdit_->setPlaceholderText(tr("선택 구조 이름 · 프로젝트 전체에 반영"));nameRow->addWidget(stageLabelEdit_,1);
-  stageLabelPreview_=new QLabel(box);stageLabelPreview_->setTextFormat(Qt::RichText);stageLabelPreview_->setMaximumWidth(180);stageLabelPreview_->setWordWrap(true);nameRow->addWidget(stageLabelPreview_);layout->addLayout(nameRow);connect(stageLabelEdit_,&QLineEdit::textEdited,this,[this](const QString& text){if(!updatingStageWorkspace_&&stageGrid_->currentRow()>=0&&!text.trimmed().isEmpty())stageGrid_->item(stageGrid_->currentRow(),0)->setText(text);});
-  auto* formatRow=new QHBoxLayout;for(const auto& marker:QStringList{"^","_"}){auto* button=new QPushButton(marker=="^"?tr("위첨자 x²"):tr("아래첨자 x₂"),box);button->setFocusPolicy(Qt::NoFocus);formatRow->addWidget(button);connect(button,&QPushButton::clicked,this,[this,marker]{const int start=stageLabelEdit_->selectionStart();if(start<0){status_->setText(tr("구조명에서 첨자로 만들 글자를 선택하세요."));return;}const int length=stageLabelEdit_->selectedText().size();auto text=stageLabelEdit_->text();text.replace(start,length,marker+"{"+stageLabelEdit_->selectedText()+"}");stageLabelEdit_->setText(text);if(stageGrid_->currentRow()>=0)stageGrid_->item(stageGrid_->currentRow(),0)->setText(text);stageLabelEdit_->setFocus();stageLabelEdit_->setSelection(start+2,length);});}formatRow->addStretch();auto* details=new QPushButton(tr("추출 정보 보기…"),box);details->setObjectName("showExtractionDetails");formatRow->addWidget(details);connect(details,&QPushButton::clicked,this,&MainWindow::showExtractionDetails);
-  layout->addLayout(formatRow);
+  auto* nameRow=new QHBoxLayout;
+  auto* nameLabel=new QLabel(tr("선택 구조명"),box);
+  stageLabelEdit_=new QLineEdit(box);
+  stageLabelEdit_->setObjectName("workspaceStructureName");
+  stageLabelEdit_->setPlaceholderText(tr("행을 선택한 뒤 구조명 편집"));
+  nameLabel->setBuddy(stageLabelEdit_);
+  nameRow->addWidget(nameLabel);
+  nameRow->addWidget(stageLabelEdit_,1);
+  stageLabelPreview_=new QLabel(box);
+  stageLabelPreview_->setTextFormat(Qt::RichText);
+  stageLabelPreview_->setMaximumWidth(180);
+  stageLabelPreview_->setWordWrap(true);
+  nameRow->addWidget(stageLabelPreview_);
+  layout->insertLayout(1,nameRow);
+  connect(stageLabelEdit_,&QLineEdit::textEdited,this,[this](const QString& text){
+    auto* item=stageGrid_->item(stageGrid_->currentRow(),0);
+    if(!updatingStageWorkspace_&&item&&!text.trimmed().isEmpty())item->setText(text);
+  });
+  auto* formatRow=new QHBoxLayout;
+  auto* formatHint=new QLabel(tr("입력칸에서 첨자로 바꿀 글자만 선택하세요."),box);
+  formatHint->setWordWrap(true);
+  for(const auto& marker:QStringList{"^","_"}){
+    auto* button=new QPushButton(marker=="^"?tr("위첨자 x² (Ctrl+Shift+U)"):tr("아래첨자 x₂ (Ctrl+Shift+D)"),box);
+    button->setObjectName(marker=="^"?"workspaceSuperscriptButton":"workspaceSubscriptButton");
+    const auto key=marker=="^"?Qt::Key_U:Qt::Key_D;
+    bindLabelFormatShortcut(stageLabelEdit_,button,key);
+    bindLabelFormatShortcut(stageGrid_,button,key);
+    button->setFocusPolicy(Qt::NoFocus);
+    button->setFocusProxy(stageLabelEdit_);
+    formatRow->addWidget(button);
+    connect(button,&QPushButton::clicked,this,[this,marker,formatHint]{
+      if(!stageLabelEdit_->isEnabled())return;
+      if(formatSelectedLabel(stageLabelEdit_,marker)){
+        formatHint->setText(tr("오른쪽 미리보기와 표에 첨자를 적용했습니다."));
+        return;
+      }
+      stageLabelEdit_->setFocus();
+      formatHint->setText(tr("예: 1A1에서 마지막 1을 선택한 뒤 아래첨자를 누르세요."));
+    });
+  }
+  formatRow->addWidget(formatHint,1);
+  layout->insertLayout(2,formatRow);
+  auto* details=new QPushButton(tr("추출 정보 보기…"),box);
+  details->setObjectName("showExtractionDetails");
+  order->addWidget(details);
+  connect(details,&QPushButton::clicked,this,&MainWindow::showExtractionDetails);
   auto* pairingRow=new QHBoxLayout;
   auto* review=new QPushButton(tr("SPE 후보 찾기…"),box);review->setObjectName("reviewSinglePoints");
   pairingRow->addWidget(review);connect(review,&QPushButton::clicked,this,[this]{reviewSinglePoints();});
@@ -217,10 +310,22 @@ void MainWindow::refreshStageNavigation(){
 
 void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();if(stageNeedsManualRelative(stage)&&stageManualRelativeValues_){stageSettingsToggle_->setChecked(true);scrollTo(stageStructureRelativeToggle_->isChecked()?static_cast<QWidget*>(stageStructureRelativeToggle_):stageManualRelativeValues_);}}
 
+QString MainWindow::stageReferencePath(const QJsonObject& stage, const QStringList& paths){
+  const auto reference=stage.value("reference").toString();
+  if(!reference.isEmpty()&&paths.contains(reference))return reference;
+  for(const auto& member:stage.value("files").toArray())
+    if(paths.contains(member.toString()))return member.toString();
+  return {};
+}
+
 bool MainWindow::stageNeedsManualRelative(int index) const {
   if(index<0||index>=reactionStages_.size())return false;
+  const auto stage=reactionStages_[index].toObject();
+  auto structures=stage.value("files").toArray();
+  if(energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single")
+    structures.append(stageReferencePath(stage,sourcePaths()));
   QSet<int> atomCounts;
-  for(const auto& value:reactionStages_[index].toObject().value("files").toArray()){
+  for(const auto& value:structures){
     const auto parsed=parsed_.value(value.toString());
     if(parsed&&!parsed->finalGeometry.empty())atomCounts.insert(static_cast<int>(parsed->finalGeometry.size()));
   }
@@ -247,8 +352,9 @@ void MainWindow::refreshStageWorkspace(){
   {QSignalBlocker blocked(stageManualRelativeValues_);stageManualRelativeValues_->setPlainText(stage.value("manual_relative_values").toString());}
   stageManualRelativeHelp_->setVisible(useManual);stageManualRelativeValues_->setVisible(useManual);
   stageManualRelativeHelp_->setText(needsManual?tr("⚠ 원자 수가 다른 구조입니다. 절대 전자에너지 차이로 상대에너지를 계산할 수 없습니다. 구조별 입력을 켜서 원자 수가 다른 구조만 보정하거나, 아래에 모든 구조의 ΔG (kcal/mol)를 입력하세요."):tr("한 줄에 하나씩 ΔG (kcal/mol) 수치를 입력하세요. 현재 반응의 구조 순서에 대응합니다."));
-  {QSignalBlocker blocked(stageNameEdit_);if(stageNameEdit_->text()!=stage["name"].toString())stageNameEdit_->setText(stage["name"].toString());} {QSignalBlocker blocked(stageReference_);stageReference_->clear();for(const auto& path:visible)stageReference_->addItem(labels.value(paths.indexOf(path)),path);stageReference_->setCurrentIndex(std::max(0,stageReference_->findData(stage["reference"].toString())));}
-  {QSignalBlocker blocked(stageFigureCaptions_);if(stageFigureCaptions_->toPlainText()!=stage["figure_captions"].toString())stageFigureCaptions_->setPlainText(stage["figure_captions"].toString());}captions_->setEnabled(reactionStages_.isEmpty());captions_->setToolTip(tr("반응별 캡션은 구조 화면의 Figure · 캡션에서 입력합니다."));
+  {QSignalBlocker blocked(stageNameEdit_);if(stageNameEdit_->text()!=stage["name"].toString())stageNameEdit_->setText(stage["name"].toString());}
+  populateStageReferences(stageReference_,paths,labels,stage["files"].toArray(),stageReferencePath(stage,paths));
+
   for(int i=0;i<4;++i){QSignalBlocker blocked(stageTableChecks_[i]);stageTableChecks_[i]->setChecked(stage.value(tableKeys[i]).toBool(i==0?includeAbsolute_->isChecked():true));}
   const int row=stageGrid_->currentRow();const auto text=row>=0?stageGrid_->item(row,0)->text():QString();{QSignalBlocker blocked(stageLabelEdit_);if(stageLabelEdit_->text()!=text)stageLabelEdit_->setText(text);}stageLabelEdit_->setEnabled(row>=0);stageLabelPreview_->setText(si::formattedTextHtml(si::structureLabelMarkup(text)));updatingStageWorkspace_=false;updateStructureStatusCells();updateStructureOrderButtons();
   if(rebuild&&row>=0){const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();const int master=paths.indexOf(path);if(master>=0&&master!=files_->currentRow())files_->selectRow(master);}
@@ -327,7 +433,7 @@ void MainWindow::addExistingStageStructures(){
 }
 
 void MainWindow::removeStageStructure(){
-  const int row=stageGrid_->currentRow();if(row<0)return;if(activeStage_<0){removeSelected();refreshStageWorkspace();return;}auto stage=reactionStages_[activeStage_].toObject();auto members=stage["files"].toArray();const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();for(int i=members.size()-1;i>=0;--i)if(members[i].toString()==path)members.removeAt(i);stage["files"]=members;if(stage["reference"].toString()==path)stage["reference"]=members.isEmpty()?QString():members.first().toString();reactionStages_[activeStage_]=stage;refreshStageNavigation();refreshStageWorkspace();scheduleDocumentRefresh();
+  const int row=stageGrid_->currentRow();if(row<0)return;if(activeStage_<0){removeSelected();refreshStageWorkspace();return;}auto stage=reactionStages_[activeStage_].toObject();auto members=stage["files"].toArray();const auto path=stageGrid_->item(row,0)->data(Qt::UserRole).toString();for(int i=members.size()-1;i>=0;--i)if(members[i].toString()==path)members.removeAt(i);stage["files"]=members;reactionStages_[activeStage_]=stage;refreshStageNavigation();refreshStageWorkspace();scheduleDocumentRefresh();
 }
 
 void MainWindow::clearStageStructures(){
@@ -361,9 +467,7 @@ void MainWindow::updateStructureOrderButtons(){
 }
 
 bool MainWindow::stageStructureNeedsRelative(const QJsonObject& stage,const QString& path) const {
-  const auto members=stage.value("files").toArray();
-  auto reference=stage.value("reference").toString();
-  if(!members.contains(reference)&&!members.isEmpty())reference=members.first().toString();
+  const auto reference=stageReferencePath(stage,sourcePaths());
   const auto source=parsed_.value(path),ref=parsed_.value(reference);
   return source&&ref&&!source->finalGeometry.empty()&&!ref->finalGeometry.empty()
     &&source->finalGeometry.size()!=ref->finalGeometry.size();
@@ -476,7 +580,13 @@ void MainWindow::editReactionStages(){
   auto* feedback=new QLabel(&dialog);feedback->setObjectName("stagePasteFeedback");feedback->setWordWrap(true);form->addRow(feedback);
   auto* labelEdit=new QLineEdit(&dialog);labelEdit->setObjectName("stageStructureNameEdit");form->addRow(tr("선택 구조명"),labelEdit);
   auto* formatting=new QHBoxLayout;auto* superscript=new QPushButton(tr("위첨자 x²"),&dialog);superscript->setObjectName("stageSuperscriptButton");auto* subscript=new QPushButton(tr("아래첨자 x₂"),&dialog);subscript->setObjectName("stageSubscriptButton");
-  for(auto* button:{superscript,subscript}){button->setFocusPolicy(Qt::NoFocus);formatting->addWidget(button);}
+  for(auto* button:{superscript,subscript}){
+    button->setFocusPolicy(Qt::NoFocus);
+    button->setFocusProxy(labelEdit);
+    formatting->addWidget(button);
+  }
+  bindLabelFormatShortcut(labelEdit,superscript,Qt::Key_U);
+  bindLabelFormatShortcut(labelEdit,subscript,Qt::Key_D);
   auto* labelPreview=new QLabel(&dialog);labelPreview->setObjectName("stageStructureNamePreview");labelPreview->setTextFormat(Qt::RichText);formatting->addWidget(labelPreview,1);form->addRow(formatting);
   auto* hint=new QLabel(tr("글자를 선택한 뒤 첨자 버튼을 누르세요. 직접 입력도 가능: ^{5}D_{RC}-TS · 5DRC-TS는 자동 첨자"),&dialog);hint->setWordWrap(true);form->addRow(hint);
   auto* reference=new QComboBox(&dialog);reference->setObjectName("reactionStageReference");reference->setItemDelegate(new StructureNameDelegate(reference));form->addRow(tr("단계 기준 구조"),reference);
@@ -484,16 +594,30 @@ void MainWindow::editReactionStages(){
   QList<QCheckBox*> checks;for(const auto& title:titles){auto* check=new QCheckBox(title,&dialog);check->setChecked(true);form->addRow(check);checks.append(check);}
   const auto paths=sourcePaths(),labels=structureLabels();QHash<QString,QString> draftLabels;for(int i=0;i<paths.size();++i)draftLabels.insert(paths[i],labels.value(i));bool loading=false;
   auto showSelection=[&]{const int row=members->currentRow();const bool valid=row>=0&&members->isEnabled();const auto text=valid?members->item(row,0)->text():QString();if(labelEdit->text()!=text){QSignalBlocker blocked(labelEdit);labelEdit->setText(text);}labelEdit->setEnabled(valid);superscript->setEnabled(valid);subscript->setEnabled(valid);labelPreview->setText(si::formattedTextHtml(si::structureLabelMarkup(text)));};
-  auto updateReference=[&]{const auto previous=reference->currentData().toString();reference->clear();for(int i=0;i<members->rowCount();++i)if(members->item(i,0)->checkState()==Qt::Checked)reference->addItem(members->item(i,0)->text(),members->item(i,0)->data(Qt::UserRole));reference->setCurrentIndex(std::max(0,reference->findData(previous)));};
+  auto updateReference=[&](const QString& selected){
+    QJsonArray checked;
+    QStringList names;
+    for(int i=0;i<members->rowCount();++i){
+      const auto* item=members->item(i,0);
+      names.append(item->text());
+      if(item->checkState()==Qt::Checked)checked.append(item->data(Qt::UserRole).toString());
+    }
+    const QJsonObject stage{{"files",checked},{"reference",selected}};
+    populateStageReferences(reference,paths,names,checked,stageReferencePath(stage,paths));
+  };
   auto save=[&](QListWidgetItem* item){if(!item)return;QJsonObject stage=item->data(Qt::UserRole).toJsonObject();stage["name"]=name->text();QJsonArray files;
     for(int i=0;i<members->rowCount();++i)if(members->item(i,0)->checkState()==Qt::Checked)files.append(members->item(i,0)->data(Qt::UserRole).toString());stage["files"]=files;stage["reference"]=reference->currentData().toString();for(int i=0;i<keys.size();++i)stage[keys[i]]=checks[i]->isChecked();item->setData(Qt::UserRole,stage);item->setText(stage["name"].toString());};
   auto load=[&](QListWidgetItem* item){loading=true;members->setRowCount(0);reference->clear();const auto stage=item?item->data(Qt::UserRole).toJsonObject():QJsonObject();name->setText(stage["name"].toString());const auto files=stage["files"].toArray();
     members->setRowCount(paths.size());for(int i=0;i<paths.size();++i){auto* label=new QTableWidgetItem(draftLabels.value(paths[i]));label->setData(Qt::UserRole,paths[i]);label->setFlags(label->flags()|Qt::ItemIsUserCheckable);label->setCheckState(files.contains(paths[i])?Qt::Checked:Qt::Unchecked);members->setItem(i,0,label);auto* output=new QTableWidgetItem(QFileInfo(paths[i]).fileName());output->setFlags(output->flags()&~Qt::ItemIsEditable);output->setToolTip(QDir::toNativeSeparators(paths[i]));members->setItem(i,1,output);}
-    name->setEnabled(item);members->setEnabled(item);paste->setEnabled(item);reference->setEnabled(item);for(auto* check:checks)check->setEnabled(item);feedback->clear();updateReference();reference->setCurrentIndex(std::max(0,reference->findData(stage["reference"].toString())));for(int i=0;i<keys.size();++i)checks[i]->setChecked(stage.value(keys[i]).toBool(true));if(!paths.isEmpty())members->setCurrentCell(0,0);loading=false;showSelection();};
+    name->setEnabled(item);members->setEnabled(item);paste->setEnabled(item);reference->setEnabled(item);for(auto* check:checks)check->setEnabled(item);feedback->clear();updateReference(stageReferencePath(stage,paths));for(int i=0;i<keys.size();++i)checks[i]->setChecked(stage.value(keys[i]).toBool(true));if(!paths.isEmpty())members->setCurrentCell(0,0);loading=false;showSelection();};
   connect(members,&QTableWidget::currentCellChanged,&dialog,[&]{if(!loading)showSelection();});
-  connect(members,&QTableWidget::itemChanged,&dialog,[&](QTableWidgetItem* item){if(loading||item->column()!=0)return;draftLabels[item->data(Qt::UserRole).toString()]=item->text();updateReference();showSelection();});
+  connect(members,&QTableWidget::itemChanged,&dialog,[&](QTableWidgetItem* item){if(loading||item->column()!=0)return;draftLabels[item->data(Qt::UserRole).toString()]=item->text();updateReference(reference->currentData().toString());showSelection();});
   connect(labelEdit,&QLineEdit::textChanged,&dialog,[&](const QString& text){if(!loading&&members->currentRow()>=0)members->item(members->currentRow(),0)->setText(text);});
-  auto format=[&](const QString& marker){if(labelEdit->selectionStart()<0){feedback->setText(tr("선택 구조명에서 첨자로 만들 글자를 먼저 선택하세요."));labelEdit->setFocus();return;}const int start=labelEdit->selectionStart(),length=labelEdit->selectedText().size();auto text=labelEdit->text();text.replace(start,length,marker+"{"+labelEdit->selectedText()+"}");labelEdit->setText(text);labelEdit->setFocus();labelEdit->setSelection(start+2,length);};
+  auto format=[&](const QString& marker){
+    if(formatSelectedLabel(labelEdit,marker))return;
+    feedback->setText(tr("선택 구조명에서 첨자로 만들 글자를 먼저 선택하세요."));
+    labelEdit->setFocus();
+  };
   connect(superscript,&QPushButton::clicked,&dialog,[&]{format("^");});connect(subscript,&QPushButton::clicked,&dialog,[&]{format("_");});
   members->pasteText=[&](const QString& text){if(!members->isEnabled())return;int changed=0,nextRow=std::max(0,members->currentRow());QStringList problems;
     auto findRow=[&](QString file){file=file.trimmed();if(file.size()>1&&file.startsWith('"')&&file.endsWith('"'))file=file.mid(1,file.size()-2);file=QDir::fromNativeSeparators(file);QList<int> matches;const bool explicitPath=file.contains('/')||QFileInfo(file).isAbsolute();const auto absolute=QFileInfo(QDir(baseDirectory_->text()).filePath(file)).absoluteFilePath();for(int i=0;i<paths.size();++i){const QFileInfo info(paths[i]);const bool match=explicitPath?info.absoluteFilePath().compare(absolute,Qt::CaseInsensitive)==0:(info.fileName().compare(file,Qt::CaseInsensitive)==0||info.completeBaseName().compare(file,Qt::CaseInsensitive)==0);if(match)matches.append(i);}return matches.size()==1?matches[0]:matches.isEmpty()?-1:-2;};

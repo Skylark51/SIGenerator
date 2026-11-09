@@ -8,6 +8,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLockFile>
+#include <QMap>
+#include <QSaveFile>
+#include <QSet>
 #include <QRegularExpression>
 #include <QUuid>
 #include <algorithm>
@@ -68,7 +71,9 @@ bool ProjectHistory::list(QVector<ProjectVersion>* versions,QString* error) cons
     const auto created=QDateTime::fromString(entry.value("created").toString(),Qt::ISODateWithMs);
     if(!created.isValid()||!validId(file.completeBaseName())||!validDigest(entry.value("project").toString()))
       return fail(error,QStringLiteral("Invalid version entry: ")+file.fileName());
-    versions->append({file.completeBaseName(),created,entry.value("message").toString()});
+    const auto docx=entries.filePath(file.completeBaseName()+".docx");
+    versions->append({file.completeBaseName(),created,entry.value("message").toString(),
+      entry.value("has_docx").toBool()&&QFileInfo::exists(docx)?docx:QString()});
   }
   std::sort(versions->begin(),versions->end(),[](const auto& a,const auto& b){
     return a.created==b.created?a.id>b.id:a.created>b.created;
@@ -76,14 +81,14 @@ bool ProjectHistory::list(QVector<ProjectVersion>* versions,QString* error) cons
   return true;
 }
 
-bool ProjectHistory::record(const QJsonObject& project,const QString& message,QString* error) const{
+bool ProjectHistory::record(const QJsonObject& project,const QString& message,QString* error,const QString& docx) const{
   if(!QDir().mkpath(directory_))return fail(error,QStringLiteral("Cannot create history folder: ")+directory_);
   QLockFile lock(QDir(directory_).filePath("write.lock"));
   if(!lock.tryLock(0))return fail(error,QStringLiteral("Project history is locked."));
-  return recordLocked(project,message,error);
+  return recordLocked(project,message,error,docx);
 }
 
-bool ProjectHistory::recordLocked(const QJsonObject& project,const QString& message,QString* error) const{
+bool ProjectHistory::recordLocked(const QJsonObject& project,const QString& message,QString* error,const QString& docx) const{
   const QDir folder(directory_);
   if(!folder.mkpath("objects")||!folder.mkpath("versions"))
     return fail(error,QStringLiteral("Cannot create history storage."));
@@ -112,8 +117,24 @@ bool ProjectHistory::recordLocked(const QJsonObject& project,const QString& mess
   const auto hash=saveObject(packed);
   if(hash.isEmpty())return false;
   const auto id=QUuid::createUuid().toString(QUuid::WithoutBraces);
-  return ProjectStore::write(folder.filePath("versions/"+id+".json"),
-    {{"created",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},{"message",message},{"project",hash}},error);
+  const auto archive=folder.filePath("versions/"+id+".docx");
+  if(!docx.isEmpty()){
+    QFile input(docx);
+    QSaveFile output(archive);
+    if(!input.open(QIODevice::ReadOnly))return fail(error,input.errorString());
+    if(!output.open(QIODevice::WriteOnly))return fail(error,output.errorString());
+    while(!input.atEnd()){
+      const auto bytes=input.read(1024*1024);
+      if(bytes.isEmpty())return fail(error,input.errorString());
+      if(output.write(bytes)!=bytes.size())return fail(error,output.errorString());
+    }
+    if(!output.commit())return fail(error,output.errorString());
+  }
+  if(ProjectStore::write(folder.filePath("versions/"+id+".json"),
+    {{"created",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},{"message",message},
+     {"project",hash},{"has_docx",!docx.isEmpty()}},error))return true;
+  if(!docx.isEmpty())QFile::remove(archive);
+  return false;
 }
 
 bool ProjectHistory::read(const QString& id,QJsonObject* project,QString* error) const{
@@ -166,12 +187,17 @@ QVector<ProjectChange> ProjectHistory::compare(const QJsonObject& before,const Q
       else change("Structure renamed",path,oldName,newName);
     });
   const auto oldOrder=order(oldStructures,"main_file","gaussian_file_path"),newOrder=order(newStructures,"main_file","gaussian_file_path");
-  if(oldOrder.size()==newOrder.size())change("Structures","Order",oldOrder,newOrder);
+  if(QSet<QJsonValue>(oldOrder.begin(),oldOrder.end())==QSet<QJsonValue>(newOrder.begin(),newOrder.end()))change("Structures","Order",oldOrder,newOrder);
   const auto oldStages=before.value("reaction_stages").toArray(),newStages=after.value("reaction_stages").toArray();
   change("Reaction stage","Order",order(oldStages,"id","name"),order(newStages,"id","name"));
   compareKeys(keyed(oldStages,"id","name"),keyed(newStages,"id","name"),[&](const auto& id,const auto& a,const auto& b){
     const auto oldStage=a.toObject(),newStage=b.toObject();
     const auto name=newStage.value("name").toString(oldStage.value("name").toString(id));
+    if(a.isUndefined()||b.isUndefined()){
+      change(a.isUndefined()?"Reaction stage added":"Reaction stage removed",name,
+             a.isUndefined()?a:QJsonValue(name),b.isUndefined()?b:QJsonValue(name));
+      return;
+    }
     compareKeys(oldStage,newStage,[&](const auto& key,const auto& oldValue,const auto& newValue){
       const auto category=key.startsWith("figure")?"Figure":
         (key=="reference"||key=="absolute"||key=="relative"||key.contains("relative_"))?"Energy":"Reaction stage";
@@ -179,11 +205,21 @@ QVector<ProjectChange> ProjectHistory::compare(const QJsonObject& before,const Q
     });
   });
   compareKeys(before,after,[&](const auto& key,const auto& a,const auto& b){
-    if(key=="structures"||key=="reaction_stages"||key=="generation_history"||key=="version")return;
+    if(key=="structures"||key=="reaction_stages"||key=="generation_history"||key=="version"||
+       (key=="captions"&&(before.contains("figure_captions")||after.contains("figure_captions"))))return;
     if(key=="gaussian_snapshots"){
       compareKeys(a.toObject(),b.toObject(),[&](const auto& path,const auto& x,const auto& y){
-        if(x!=y)change("Gaussian data",path,x.isObject()?QJsonValue(digest(x.toObject())):x,
-                                                y.isObject()?QJsonValue(digest(y.toObject())):y);
+        if(x==y)return;
+        const auto oldData=x.toObject(),newData=y.toObject();
+        if(x.isObject()&&y.isObject()){
+          const QMap<QString,QString> energies{{"scf","SCF (Hartree)"},{"gibbs","Gibbs (Hartree)"},
+            {"zpe","ZPE (Hartree)"},{"thermal_energy","Thermal correction (Hartree)"},
+            {"enthalpy","Enthalpy (Hartree)"},{"dispersion","Dispersion (Hartree)"}};
+          for(auto it=energies.cbegin();it!=energies.cend();++it)
+            change("Energy",path+" / "+it.value(),oldData.value(it.key()),newData.value(it.key()));
+        }
+        change("Gaussian data",path,x.isObject()?QJsonValue(digest(oldData)):x,
+                                    y.isObject()?QJsonValue(digest(newData)):y);
       });
     }else if(key=="molecular_figures"||key=="figure_captions"||key=="captions")change("Figure",key,a,b);
     else if(key.contains("energy")||key=="reference_settings"||key.startsWith("include_")||key=="decimal_places")

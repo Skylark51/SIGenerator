@@ -1,3 +1,4 @@
+#include <QLineEdit>
 #include "FigureSetupDialog.hpp"
 #include "MoleculeViewWidget.hpp"
 #include "MolecularStyle.hpp"
@@ -130,6 +131,8 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
       rows_=limited;views_=updatedViews;customRows_=true;
     }
   }
+  for(const auto& entry:settings.value("captions").toArray())captions_.append(entry.toString());
+  captions_.resize(rows_.size());
   auto* layout=new QVBoxLayout(this);
   auto* instruction=new QLabel(tr("렌더링 한 줄마다 원하는 구조를 선택하세요. 기본 구성은 첫 줄 3개, 이후 2개입니다.\n[새 줄]·[현재 줄에 추가]로 줄을 자유롭게 구성하며 같은 구조도 여러 줄에 사용할 수 있습니다. Youngcraft 스타일과 카메라 설정은 유지됩니다."),this);
   instruction->setWordWrap(true);layout->addWidget(instruction);
@@ -164,16 +167,20 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   newLine->setObjectName("appendFigureRow");lineControls->addWidget(newLine);
   connect(newLine,&QPushButton::clicked,this,[this,selectSource]{
     const int chosen=selectSource(tr("새 Figure 줄의 첫 구조"));if(chosen<0)return;
-    storeGroup();customRows_=true;rows_.append(QVector<int>{chosen});group_=rows_.size()-1;showGroup();
+    storeGroup();customRows_=true;rows_.append(QVector<int>{chosen});captions_.append(QString());group_=rows_.size()-1;showGroup();
   });
   auto* deleteLine=new QPushButton(tr("현재 줄 삭제"),this);
   deleteLine->setObjectName("removeFigureRow");lineControls->addWidget(deleteLine);
   connect(deleteLine,&QPushButton::clicked,this,[this]{
     if(rows_.size()<=1){status_->setText(tr("적어도 한 줄은 필요합니다."));return;}
-    storeGroup();customRows_=true;rows_.removeAt(group_);group_=std::min(group_,int(rows_.size())-1);showGroup();
+    storeGroup();customRows_=true;rows_.removeAt(group_);captions_.removeAt(group_);group_=std::min(group_,int(rows_.size())-1);showGroup();
   });
   lineControls->addStretch();layout->addLayout(lineControls);
   panelWidget_=new QWidget(this);panels_=new QVBoxLayout(panelWidget_);panels_->setContentsMargins(0,0,0,0);layout->addWidget(panelWidget_,1);
+  caption_=new QLineEdit(this);
+  caption_->setObjectName("figureGroupCaption");
+  auto* captionLabel=new QLabel(tr("현재 Figure 줄의 캡션"),this);
+  captionLabel->setBuddy(caption_);layout->addWidget(captionLabel);layout->addWidget(caption_);
   status_=new QLabel(this);status_->setWordWrap(true);layout->addWidget(status_);
   auto* buttons=new QDialogButtonBox(this);
   previous_=buttons->addButton(tr("이전"),QDialogButtonBox::ActionRole);previous_->setObjectName("previousFigureGroup");
@@ -181,7 +188,7 @@ FigureSetupDialog::FigureSetupDialog(const QVector<si::CoordinateBlock>& structu
   auto* cancel=buttons->addButton(QDialogButtonBox::Cancel);layout->addWidget(buttons);
   connect(cancel,&QPushButton::clicked,this,&QDialog::reject);
   connect(previous_,&QPushButton::clicked,this,[this]{storeGroup();--group_;showGroup();});
-  connect(next_,&QPushButton::clicked,this,[this]{storeGroup();if(group_+1<rows_.size()){++group_;showGroup();}else finish();});
+  connect(next_,&QPushButton::clicked,this,[this]{storeGroup();if(group_+1<rows_.size()){++group_;showGroup();}else {renderFigures();accept();}});
   connect(indices_,&QCheckBox::toggled,this,[this](bool checked){for(auto* view:viewers_)view->setAtomIndicesVisible(checked);});
   connect(hideHydrogens_,&QCheckBox::toggled,this,[this](bool hidden){
     for(int i=0;i<viewers_.size();++i)
@@ -210,6 +217,7 @@ void FigureSetupDialog::rebuildDefaultRows(){
 }
 void FigureSetupDialog::storeGroup(){
   if(group_<0||group_>=rows_.size())return;
+  captions_[group_]=caption_->text().trimmed();
   for(int i=0;i<viewers_.size()&&i<rows_[group_].size();++i){
     const auto camera=viewers_[i]->cameraState();
     views_.insert(paths_[rows_[group_][i]],camera);
@@ -217,6 +225,8 @@ void FigureSetupDialog::storeGroup(){
   }
 }
 void FigureSetupDialog::showGroup(){
+  caption_->setText(captions_.value(group_));
+  caption_->setPlaceholderText(tr("비우면 구조 이름으로 캡션을 만듭니다."));
   changing_=true;viewers_.clear();selectors_.clear();hydrogenSelectors_.clear();
   while(auto* item=panels_->takeAt(0)){if(auto* widget=item->widget()){widget->hide();widget->deleteLater();}delete item;}
   auto* rowWidget=new QWidget(panelWidget_);auto* row=new QHBoxLayout(rowWidget);row->setContentsMargins(0,0,0,0);panels_->addWidget(rowWidget);
@@ -303,11 +313,12 @@ QJsonObject FigureSetupDialog::settings() const {
   for(const auto& path:paths_)sources.append(path);
   for(const auto& indices:rows_){QJsonArray row;for(int index:indices)row.append(paths_[index]);rows.append(row);}
   QJsonObject retained;for(auto it=retainedHydrogens_.cbegin();it!=retainedHydrogens_.cend();++it)retained.insert(it.key(),it.value());
-  return {{"sequence_version",2},{"sources",sources},{"order",order},{"rows_version",1},{"rows",rows},{"views",views_},{"indices",indices_->isChecked()},
+  QJsonArray captions;for(const auto& text:captions_)captions.append(text);
+  return {{"captions",captions},{"sequence_version",2},{"sources",sources},{"order",order},{"rows_version",1},{"rows",rows},{"views",views_},{"indices",indices_->isChecked()},
     {"hide_hydrogens",hideHydrogens_->isChecked()},{"retained_hydrogens",retained},{"render_style",renderStyle_}};
 }
 QVector<si::DocumentFigure> FigureSetupDialog::figures() const { return figures_; }
-void FigureSetupDialog::finish(){
+void FigureSetupDialog::renderFigures(){
   figures_.clear();const int groups=rows_.size();
   for(int group=0;group<groups;++group){
     const int count=rows_[group].size();
@@ -354,5 +365,4 @@ void FigureSetupDialog::finish(){
     painter.end();image.setDotsPerMeterX(23622);image.setDotsPerMeterY(23622);QBuffer buffer(&figure.png);buffer.open(QIODevice::WriteOnly);image.save(&buffer,"PNG");
     figure.pixelWidth=image.width();figure.pixelHeight=image.height();figures_.append(figure);
   }
-  accept();
 }

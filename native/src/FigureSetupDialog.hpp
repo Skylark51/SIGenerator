@@ -9,6 +9,7 @@ class MoleculeViewWidget;
 class QComboBox;
 class QCheckBox;
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QVBoxLayout;
 
@@ -19,15 +20,17 @@ class FigureSetupDialog final : public QDialog {
 public:
   FigureSetupDialog(const QVector<si::CoordinateBlock>& structures, const QStringList& paths,
                     const QJsonObject& settings, QWidget* parent=nullptr);
+  void renderFigures();
   QJsonObject settings() const;
   QVector<si::DocumentFigure> figures() const;
 private:
   void showGroup();
   void storeGroup();
-  void finish();
+
   void rebuildDefaultRows();
   QVector<si::CoordinateBlock> structures_;
-  QStringList paths_;
+  QStringList paths_,captions_;
+  QLineEdit* caption_{};
   QVector<int> order_;
   QVector<QVector<int>> rows_;
   bool customRows_{};

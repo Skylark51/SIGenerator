@@ -2,6 +2,7 @@
 #include "ProjectStore.hpp"
 
 #include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QTemporaryDir>
 #include <algorithm>
@@ -33,7 +34,19 @@ int main(){
   edited.energyBasis="2";
   edited.figureSettings={{"layout",2}};
   const auto second=ProjectStore::serialize(path,edited);
-  if(!check(history.record(second,"Edited",&error),"save edited version"))return 1;
+  const auto output=temp.filePath("SI.docx");
+  const QByteArray original("original DOCX bytes");
+  auto writeOutput=[&](const QByteArray& bytes){
+    QFile file(output);
+    return file.open(QIODevice::WriteOnly)&&file.write(bytes)==bytes.size();
+  };
+  if(!check(writeOutput(original)&&history.record(second,"Edited",&error,output)&&writeOutput("new export"),
+            "archive DOCX before the output is overwritten"))return 1;
+  if(!check(history.list(&versions,&error)&&versions.size()==2,"list archived version"))return 1;
+  const auto archived=std::find_if(versions.begin(),versions.end(),[](const auto& version){return version.message=="Edited";});
+  if(!check(archived!=versions.end()&&!archived->docxPath.isEmpty(),"archived version exposes its DOCX"))return 1;
+  QFile archive(archived->docxPath);
+  if(!check(archive.open(QIODevice::ReadOnly)&&archive.readAll()==original,"archive preserves original bytes"))return 1;
   const QDir objects(path+".history/objects");
   if(!check(objects.entryList({"*.json"},QDir::Files).size()==3,"unchanged extraction blob stored once"))return 1;
   QJsonObject reconstructed;
