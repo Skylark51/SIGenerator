@@ -1,5 +1,20 @@
 # SI Generator Native
 
+## C드라이브 포터블과 기본 배포 절차
+
+별도 지시가 없는 수정 작업은 검증 → 커밋 → GitHub 푸시 → main 병합 → 해당 커밋의 Windows Release 빌드 성공 확인 → C드라이브 포터블 갱신까지 완료합니다.
+해당 빌드의 `SI-Generator-Windows-x64.zip`을 준비한 뒤 실행합니다.
+
+```powershell
+.\native\install-portable.ps1 -PackagePath "C:\실제경로\SI-Generator-Windows-x64.zip" -SourceCommit "병합된 40자리 커밋 SHA"
+```
+
+기본 설치 위치는 `C:\SI-Generator`이며, 기존 바탕화면 SI Generator 바로가기의 실행 대상·작업 폴더·아이콘을 이 위치로 연결합니다.
+EXE와 Qt 런타임을 함께 저장하므로 외장하드나 Python·Qt 개발 도구 없이 실행할 수 있습니다.
+업데이트 전 프로그램을 종료해야 하며 이전 런타임은 설치 폴더의 `backups`에 보존합니다.
+`portable-version.json`에는 소스 커밋과 패키지·EXE의 SHA-256을 기록합니다.
+기존 프로젝트와 Gaussian 원본 파일은 자동으로 이동하지 않으므로, 외장하드 없이 사용할 데이터는 별도로 C드라이브에 저장하세요.
+
 ## 구조 작업 화면과 SI 출력 개선 (2026-11-05)
 
 - 구조 목록을 위쪽에 배치하고 반응 설정을 접을 수 있게 했습니다. 표시 열은 앱 설정에 저장되며 구조명은 항상 표시됩니다.
