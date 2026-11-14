@@ -34,7 +34,7 @@ std::optional<double> numberBefore(std::string_view line, std::string_view marke
 }
 std::vector<std::string> words(std::string_view line) { std::istringstream in{std::string(line)}; std::vector<std::string> out; for (std::string item; in >> item;) out.push_back(std::move(item)); return out; }
 bool dashed(std::string_view line) { const auto text = trim(line); return text.size() >= 3 && std::all_of(text.begin(), text.end(), [](unsigned char c){ return c == '-'; }); }
-std::optional<double> parseNumber(std::string value) { for (char& c : value) if (c == 'D' || c == 'd') c = 'E'; char* end{}; const auto parsed = std::strtod(value.c_str(), &end); return end != value.c_str() && std::isfinite(parsed) ? std::optional<double>{parsed} : std::nullopt; }
+std::optional<double> parseNumber(std::string value) { for (char& c : value) if (c == 'D' || c == 'd') c = 'E'; char* end{}; const auto parsed = std::strtod(value.c_str(), &end); return end != value.c_str() && *end=='\0' && std::isfinite(parsed) ? std::optional<double>{parsed} : std::nullopt; }
 }
 
 std::filesystem::path pairedSinglePointPath(const std::filesystem::path& path){
@@ -68,6 +68,8 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
     else fullSpins=spins;
   };
   bool entropyTable=false, readingZeroPointKcal=false;
+  std::vector<double> normalFrequencies, highPrecisionFrequencies;
+  bool sawNormalFrequencies=false;
   static const std::regex versionPattern(R"(Gaussian\s+(\d{2})(?:\s*:\s*[^\s,]+)?\s*[, ]*\s*(?:Revision\s+|G\d{2}Rev)([A-Za-z]\.\d+))",std::regex::icase);
   static const std::regex programPattern(R"(Gaussian\s+(\d{2})\s*[:,])",std::regex::icase);
   static const std::regex compactRevision(R"(G(\d{2})Rev([A-Za-z]\.\d+))",std::regex::icase);
@@ -133,8 +135,21 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
     if (contains(line, "Sum of electronic and thermal Enthalpies=")) result.enthalpy = numberAfter(line, "=");
     if (contains(line, "Sum of electronic and thermal Free Energies=")) result.gibbsFreeEnergy = numberAfter(line, "=");
     if (contains(line, "Charge =") && contains(line, "Multiplicity =")) { const auto items = words(line); for (size_t i = 0; i + 2 < items.size(); ++i) { if (items[i] == "Charge" && items[i + 1] == "=") result.charge = std::stoi(items[i + 2]); if (items[i] == "Multiplicity" && items[i + 1] == "=") result.multiplicity = std::stoi(items[i + 2]); } }
-    if (contains(line, "Frequencies --")) result.frequenciesPresent=true;
-    if (contains(line, "Frequencies --")) for (auto value : words(line.substr(line.find("--") + 2))) if (const auto frequency = parseNumber(value); frequency && *frequency < 0) result.imaginaryFrequencies.push_back(*frequency);
+    // Gaussian can print both high-precision and ordinary modes for one job,
+    // and several harmonic analyses in one output. Keep the final analysis and
+    // prefer its ordinary block instead of counting the same modes twice.
+    if (low.starts_with("harmonic frequencies")) {
+      normalFrequencies.clear();highPrecisionFrequencies.clear();sawNormalFrequencies=false;
+    }
+    if (clean.starts_with("Frequencies --")) {
+      result.frequenciesPresent=true;
+      const bool high=clean.starts_with("Frequencies ---");
+      auto& frequencies=high?highPrecisionFrequencies:normalFrequencies;
+      if(!high)sawNormalFrequencies=true;
+      const auto offset=clean.find_first_not_of('-',clean.find("--"));
+      if(offset!=std::string::npos)for(const auto& token:words(clean.substr(offset)))
+        if(const auto frequency=parseNumber(token))frequencies.push_back(*frequency);
+    }
     if (contains(low,"excited state")) { const auto stateWords=words(line); int index=0; for(size_t i=0;i+1<stateWords.size();++i) if(lower(stateWords[i])=="state") { std::string token=stateWords[i+1]; while(!token.empty()&&!std::isdigit(static_cast<unsigned char>(token.back()))) token.pop_back(); if(const auto parsed=parseNumber(token)) index=static_cast<int>(*parsed); break; } const auto ev=numberBefore(line,"eV"); if(index>0&&ev) result.excitedStates.push_back({index,*ev,numberBefore(line,"nm"),numberAfter(line,"f="),clean}); }
     if (contains(low,"point number")) { const auto pointWords=words(line); for(size_t i=0;i+1<pointWords.size();++i) if(lower(pointWords[i])=="number") { if(const auto parsed=parseNumber(pointWords[i+1])) { activeIrcIndex=static_cast<int>(*parsed); activeIrcDirection=contains(low,"forward")?"forward":contains(low,"reverse")?"reverse":""; break; } } }
     if (contains(low, "standard orientation:") || contains(low, "input orientation:")) { inOrientation = true; orientationDashes = 0; geometry.clear(); continue; }
@@ -165,6 +180,8 @@ GaussianResult GaussianParser::parse(const std::filesystem::path& path, bool inc
   }
   if(collectingRoute)route=activeRoute;
   if(inSpin)finishSpinBlock();
+  result.vibrationalFrequencies=sawNormalFrequencies?std::move(normalFrequencies):std::move(highPrecisionFrequencies);
+  for(double frequency:result.vibrationalFrequencies)if(frequency<0)result.imaginaryFrequencies.push_back(frequency);
   result.route=route;
   result.finalGeometry=std::move(lastGeometry);
   result.spinDensities=fullSpins.empty()?std::move(summedSpins):std::move(fullSpins);

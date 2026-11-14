@@ -28,6 +28,8 @@ struct GaussianResult {
   std::optional<double> temperatureKelvin, pressureAtm, sSquaredBefore, sSquaredAfter;
   bool frequenciesPresent{};
   std::vector<double> imaginaryFrequencies;
+  // Complete final harmonic block; empty in older saved snapshots.
+  std::vector<double> vibrationalFrequencies;
   std::vector<SpinDensity> spinDensities;
   std::vector<ExcitedState> excitedStates;
   std::vector<IrcPoint> ircPoints;

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 #include "ProjectStore.hpp"
 #include "GaussianSnapshot.hpp"
 #include "si/XyzWriter.hpp"
@@ -28,6 +29,29 @@ int main(int argc, char** argv) {
   const auto fallbackSpin=parser.parse(fixtures / "spin-fallback-freq.out");
   const auto invalidSibling=parser.parse(fixtures / "spin-invalid-freq.out");
   bool ok=true;
+  {
+    QTemporaryDir frequencyFiles;
+    const auto path=frequencyFiles.filePath("repeated-frequencies.out");
+    auto parseText=[&](const QByteArray& text){
+      QFile file(path);if(!file.open(QIODevice::WriteOnly|QIODevice::Truncate))throw std::runtime_error("frequency fixture write failed");
+      file.write("# freq b3lyp/def2svp\n\nSCF Done: E(RB3LYP) = -1.0\n"+text);file.close();
+      return parser.parse(std::filesystem::path(path.toStdWString()),false);
+    };
+    const auto duplicate=parseText(" Harmonic frequencies (cm**-1)\n Frequencies --- -123.456789 25.000001 100.000001\n Harmonic frequencies (cm**-1)\n Frequencies -- -123.4568 25.0 100.0\n Frequencies -- 250.0 0.0 1.5D+02\n");
+    ok&=check(duplicate.imaginaryFrequencies.size()==1&&duplicate.vibrationalFrequencies.size()==6,
+      "high precision and ordinary modes are not counted twice");
+    ok&=check(std::count_if(duplicate.vibrationalFrequencies.begin(),duplicate.vibrationalFrequencies.end(),[](double n){return n>0&&n<100;})==1,
+      "low positive modes exclude imaginary, zero and 100 cm-1 boundary");
+    const auto repeated=parseText(" Harmonic frequencies (cm**-1)\n Frequencies -- -10 -20 40\n Harmonic frequencies (cm**-1)\n Frequencies -- 30 60 120\n");
+    ok&=check(repeated.imaginaryFrequencies.empty()&&repeated.vibrationalFrequencies==std::vector<double>({30,60,120}),
+      "final harmonic analysis replaces earlier imaginary modes");
+    const auto highOnly=parseText(" Harmonic frequencies (cm**-1)\n Frequencies --- -4.2D+01 12.5 30junk *****\n");
+    ok&=check(highOnly.imaginaryFrequencies==std::vector<double>({-42})&&highOnly.vibrationalFrequencies.size()==2,
+      "high precision only and Fortran exponents work; malformed values are excluded");
+    si::GaussianResult restored;
+    ok&=check(si::GaussianSnapshot::decode(si::GaussianSnapshot::encode(duplicate),&restored)&&restored.vibrationalFrequencies==duplicate.vibrationalFrequencies,
+      "complete vibrational modes survive offline project snapshots");
+  }
 
   {
     QTemporaryDir portability;

@@ -92,6 +92,9 @@ QJsonObject GaussianSnapshot::encode(const GaussianResult& result) {
   QJsonArray frequencies;
   for (double frequency : result.imaginaryFrequencies) frequencies.append(frequency);
   data.insert("imaginary",frequencies);
+  QJsonArray modes;
+  for(double frequency:result.vibrationalFrequencies)modes.append(frequency);
+  data.insert("vibrational_frequencies",modes);
 
   QJsonArray atoms;
   for (const auto& atom : result.finalGeometry)
@@ -173,6 +176,8 @@ bool GaussianSnapshot::decode(const QJsonObject& snapshot, GaussianResult* resul
 
   for (const auto& entry : data.value("imaginary").toArray())
     if (entry.isDouble()) restored.imaginaryFrequencies.push_back(entry.toDouble());
+  for (const auto& entry : data.value("vibrational_frequencies").toArray())
+    if (entry.isDouble()) restored.vibrationalFrequencies.push_back(entry.toDouble());
   for (const auto& entry : data.value("atoms").toArray()) {
     const auto atom=entry.toArray();
     if (atom.size()!=5 || !atom[0].isDouble() || !atom[1].isString()) return false;

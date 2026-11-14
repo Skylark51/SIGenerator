@@ -530,6 +530,9 @@ void MainWindow::refreshPreflight(){
     if(energyInputMode_->currentData().toString()=="automatic"&&!si::selectEnergy(record,basis))errors.append("Required energy missing for selected mode");
     if(!freq.normalTermination)warnings.append("Normal termination not confirmed");
     if(!freq.frequenciesPresent)warnings.append("Frequency data missing");
+    const auto lowModes=std::count_if(freq.vibrationalFrequencies.begin(),freq.vibrationalFrequencies.end(),
+      [](double value){return value>0&&value<100;});
+    if(lowModes>0)warnings.append(tr("100 cm⁻¹ 미만의 양의 진동수 %1개: 조화 근사 엔트로피를 검토하세요. 자동 준조화 보정은 적용하지 않습니다.").arg(static_cast<qlonglong>(lowModes)));
     if(!record.singlePoint||!record.singlePoint->scfEnergy)warnings.append("SPE missing");
     if(const auto spe=parsed_.value(pairedPaths_.value(paths[row]))){
       const auto match=si::validateSpe(freq,*spe);
