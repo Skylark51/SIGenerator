@@ -33,6 +33,7 @@ public:
   QImage renderMolecule(QSize size = QSize(1200, 1000)) const;
   void clearSelection();
   [[nodiscard]] QVector<int> selectedAtoms() const { return selectedAtoms_; }
+  [[nodiscard]] QString selectedGeometryText() const;
 
 signals:
   void atomPicked(int atomIndex, const QString& element, double spinDensity, bool hasSpinDensity);
@@ -47,6 +48,7 @@ protected:
   void mouseMoveEvent(QMouseEvent* event) override;
   void mouseReleaseEvent(QMouseEvent* event) override;
   void wheelEvent(QWheelEvent* event) override;
+  void keyPressEvent(QKeyEvent* event) override;
 
 private:
   struct ProjectedAtom { QPointF point; double depth{}; double radius{}; int index{}; };

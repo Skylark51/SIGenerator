@@ -1,5 +1,13 @@
 # SI Generator Native
 
+## 소규모 계산 검토·분자 측정 개선 (2026-11-14)
+
+- Gaussian의 일반/고정밀 진동수 블록을 중복 집계하지 않고 마지막 harmonic 분석을 사용합니다. 고정밀 블록만 있는 출력과 Fortran D 지수도 지원합니다.
+- 추출 정보와 구조 상태의 상세 설명에 100 cm⁻¹ 미만의 양의 진동수 개수를 표시합니다. 저진동수는 조화 근사 엔트로피 검토를 위한 안내이며 기존 ΔG 계산식이나 에너지 값을 자동으로 보정하지 않습니다. 진동수 전체 목록은 프로젝트의 오프라인 데이터에도 보존합니다. 과거 프로젝트도 계속 열 수 있습니다.
+- 기존 **거리·각도·이면각** 모드에서 선택 원자를 점선으로 연결하고 뷰어 아래에 측정값을 표시합니다. 뷰어에서 Esc를 누르면 선택을 해제합니다. 측정선과 표시값은 Figure 이미지에 포함하지 않습니다.
+
+검토 참고: [cclib Gaussian parser](https://github.com/cclib/cclib/blob/master/cclib/parser/gaussianparser.py)의 진동수 블록 처리, [GoodVibes](https://github.com/patonlab/GoodVibes)의 저진동수 열역학 검토, [Avogadro MeasureTool](https://github.com/OpenChemistry/avogadrolibs/blob/master/avogadro/qtplugins/measuretool/measuretool.cpp)의 원자 선택 측정 방식. 기능 아이디어를 참고해 기존 C++/Qt 구현을 개선했으며 Python이나 외부 라이브러리 실행 의존성을 추가하지 않습니다.
+
 ## C드라이브 포터블과 기본 배포 절차
 
 별도 지시가 없는 수정 작업은 검증 → 커밋 → GitHub 푸시 → main 병합 → 해당 커밋의 Windows Release 빌드 성공 확인 → C드라이브 포터블 갱신까지 완료합니다.

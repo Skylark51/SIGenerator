@@ -1,11 +1,13 @@
 #include "MoleculeViewWidget.hpp"
 #include "MolecularStyle.hpp"
+#include "si/SIModel.hpp"
 
 #include <QMouseEvent>
 #include <QPainter>
 #include <QLinearGradient>
 #include <QLineF>
 #include <QWheelEvent>
+#include <QKeyEvent>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -28,7 +30,7 @@ MoleculeViewWidget::MoleculeViewWidget(QWidget* parent) : QOpenGLWidget(parent) 
   setObjectName(QStringLiteral("moleculeView"));
   setMinimumSize(320, 260);
   setFocusPolicy(Qt::StrongFocus);
-  setToolTip(tr("왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대/축소 (Drag: rotate/pan, wheel: zoom)"));
+  setToolTip(tr("왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대/축소 · 선택 구조 모드: 원자 2/3/4개로 측정, Esc로 선택 해제"));
 }
 
 void MoleculeViewWidget::setMolecule(const std::vector<si::Atom>& atoms, const std::vector<si::SpinDensity>& spins, const std::string& spinBasisLevel, bool spinFallback) {
@@ -40,6 +42,7 @@ void MoleculeViewWidget::setAtomIndicesVisible(bool visible) { showIndices_ = vi
 void MoleculeViewWidget::setHydrogenVisibility(bool hideHydrogens, int retainedHydrogenIndex) {
   hideHydrogens_ = hideHydrogens;
   retainedHydrogenIndex_ = retainedHydrogenIndex;
+  if(std::any_of(selectedAtoms_.begin(),selectedAtoms_.end(),[this](int id){return !atomVisible(id);}))clearSelection();
   update();
 }
 bool MoleculeViewWidget::atomVisible(int atomIndex) const {
@@ -48,6 +51,16 @@ bool MoleculeViewWidget::atomVisible(int atomIndex) const {
 }
 void MoleculeViewWidget::resetView() { yaw_=-25.0; pitch_=20.0; roll_=0.0; zoom_=1.0; pan_={}; update(); emit cameraChanged(); }
 void MoleculeViewWidget::clearSelection() { selectedAtoms_.clear(); emit geometrySelectionChanged(selectedAtoms_); update(); }
+QString MoleculeViewWidget::selectedGeometryText() const {
+  if(mode_!=InteractionMode::Geometry||selectedAtoms_.size()<2)return {};
+  QStringList ids;for(int id:selectedAtoms_)ids.append(QString::number(id));
+  std::optional<double> value;
+  if(selectedAtoms_.size()==2)value=si::distance(atoms_,selectedAtoms_[0],selectedAtoms_[1]);
+  else if(selectedAtoms_.size()==3)value=si::angle(atoms_,selectedAtoms_[0],selectedAtoms_[1],selectedAtoms_[2]);
+  else if(selectedAtoms_.size()==4)value=si::dihedral(atoms_,selectedAtoms_[0],selectedAtoms_[1],selectedAtoms_[2],selectedAtoms_[3]);
+  return ids.join("–")+": "+(value?QString::number(*value,'f',selectedAtoms_.size()==2?3:2):QStringLiteral("N/A"))+
+    (selectedAtoms_.size()==2?QStringLiteral(" Å"):QStringLiteral("°"));
+}
 void MoleculeViewWidget::initializeGL() {}
 void MoleculeViewWidget::resizeGL(int, int) {}
 
@@ -157,6 +170,17 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
   }
   if(clean)return;
   painter.setFont(uiFont);
+  if(mode_==InteractionMode::Geometry&&!selectedAtoms_.isEmpty()){
+    painter.setPen(QPen(QColor(215,135,0),2*unit,Qt::DashLine));
+    for(qsizetype i=1;i<selectedAtoms_.size();++i)
+      painter.drawLine(projected[selectedAtoms_[i-1]-1].point,projected[selectedAtoms_[i]-1].point);
+    const auto text=selectedGeometryText();
+    if(!text.isEmpty()){
+      const QRectF box(10,height-42,std::min(width-20.0,painter.fontMetrics().horizontalAdvance(text)+24.0),32);
+      painter.setPen(QPen(QColor(185,145,60),1));painter.setBrush(QColor(255,249,230,245));painter.drawRoundedRect(box,6,6);
+      painter.setPen(QColor(65,48,20));painter.drawText(box,Qt::AlignCenter,text);
+    }
+  }
   if(mode_==InteractionMode::SpinDensity&&selectedAtoms_.size()==1){const int id=selectedAtoms_.front();const auto found=std::find_if(projected.begin(),projected.end(),[id](const auto& item){return item.index==id;});if(found!=projected.end()){double spin=0.0;bool hasSpin=false;for(const auto& value:spins_)if(value.atomIndex==id){spin=value.spin;hasSpin=true;break;}const auto& atom=atoms_[static_cast<size_t>(id-1)];const QString basis=QString::fromStdString(spinBasisLevel_)+(spinFallback_?QStringLiteral(" fallback"):QString());const QString text=QStringLiteral("%1(%2)\nSpin: %3\nBasis: %4").arg(QString::fromStdString(atom.symbol)).arg(id).arg(hasSpin?QString::number(spin,'f',3):QStringLiteral("N/A"),basis);QRectF box(found->point+QPointF(18,-62),QSizeF(150,58));if(box.right()>width-8)box.moveRight(width-8);if(box.top()<34)box.moveTop(34);painter.setPen(QPen(QColor(108,126,150),1.2));painter.setBrush(QColor(238,245,255,245));painter.drawRoundedRect(box,8,8);painter.setPen(QColor(42,55,72));painter.drawText(box.adjusted(9,5,-6,-4),Qt::AlignLeft|Qt::AlignVCenter,text);}}
   painter.setPen(QColor(75,85,100));painter.drawText(QRect(10,8,width-20,24),Qt::AlignLeft|Qt::AlignVCenter,mode_==InteractionMode::SpinDensity?tr("스핀 밀도 모드 (Spin Density Mode)"):mode_==InteractionMode::Geometry?tr("선택 구조 모드 (Selected Geometry Mode)"):tr("분자 보기 (Molecular Viewer)"));
 }
@@ -164,7 +188,8 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
 void MoleculeViewWidget::rebuildBonds(){bonds_.clear();for(size_t i=0;i<atoms_.size();++i)for(size_t j=i+1;j<atoms_.size();++j){const auto&a=atoms_[i],&b=atoms_[j];const double dx=a.xyz[0]-b.xyz[0],dy=a.xyz[1]-b.xyz[1],dz=a.xyz[2]-b.xyz[2],distance=std::sqrt(dx*dx+dy*dy+dz*dz);const double cutoff=1.22*(covalentRadius(a.atomicNumber)+covalentRadius(b.atomicNumber));if(distance>0.2&&distance<=cutoff)bonds_.append({static_cast<int>(i),static_cast<int>(j)});}}
 int MoleculeViewWidget::pickAtom(const QPointF& position) const {int picked=-1;double best=1e9,bestDepth=1e9;for(const auto& item:projectedAtoms()){if(!atomVisible(item.index))continue;const double d=QLineF(position,item.point).length();if(d<=item.radius+7.0&&(item.depth<bestDepth||(item.depth==bestDepth&&d<best))){picked=item.index;best=d;bestDepth=item.depth;}}return picked;}
 void MoleculeViewWidget::handleClick(const QPointF& position){const int picked=pickAtom(position);if(picked<1)return;const auto& atom=atoms_[static_cast<size_t>(picked-1)];if(mode_==InteractionMode::Geometry){if(selectedAtoms_.contains(picked))selectedAtoms_.removeAll(picked);else{if(selectedAtoms_.size()>=4)selectedAtoms_.clear();selectedAtoms_.append(picked);}emit geometrySelectionChanged(selectedAtoms_);}else{selectedAtoms_={picked};double spin=0.0;bool found=false;for(const auto& value:spins_)if(value.atomIndex==picked){spin=value.spin;found=true;break;}emit atomPicked(picked,QString::fromStdString(atom.symbol),spin,found);}update();}
-void MoleculeViewWidget::mousePressEvent(QMouseEvent* event){lastMouse_=event->pos();dragging_=true;moved_=false;dragButton_=event->button();event->accept();}
+void MoleculeViewWidget::mousePressEvent(QMouseEvent* event){setFocus();lastMouse_=event->pos();dragging_=true;moved_=false;dragButton_=event->button();event->accept();}
 void MoleculeViewWidget::mouseMoveEvent(QMouseEvent* event){if(!dragging_)return;const QPoint delta=event->pos()-lastMouse_;if(delta.manhattanLength()>2)moved_=true;if(dragButton_==Qt::RightButton||event->modifiers().testFlag(Qt::ShiftModifier))pan_+=QPointF(delta)/std::max(1,std::min(captureRect().width(),captureRect().height()));else if(event->modifiers().testFlag(Qt::AltModifier)){roll_+=delta.x()*0.6;}else{yaw_+=delta.x()*0.6;pitch_+=delta.y()*0.6;}lastMouse_=event->pos();update();emit cameraChanged();}
 void MoleculeViewWidget::mouseReleaseEvent(QMouseEvent* event){if(dragging_&&!moved_&&event->button()==Qt::LeftButton)handleClick(event->position());dragging_=false;dragButton_=Qt::NoButton;event->accept();}
 void MoleculeViewWidget::wheelEvent(QWheelEvent* event){zoom_=std::clamp(zoom_*std::pow(1.0015,event->angleDelta().y()),0.15,8.0);update();emit cameraChanged();event->accept();}
+void MoleculeViewWidget::keyPressEvent(QKeyEvent* event){if(event->key()==Qt::Key_Escape){clearSelection();event->accept();return;}QOpenGLWidget::keyPressEvent(event);}

@@ -181,6 +181,17 @@ bool singleLineTableSmoke(){
 }
 
 struct Phase1Smoke {
+  static bool lowFrequencyDiagnostic(const QString& fixture){
+    MainWindow window;window.parsePaths({fixture},false,false);if(!waitForImport(window))return false;
+    auto original=window.parsed_.value(fixture);if(!original)return false;
+    auto result=std::make_shared<si::GaussianResult>(*original);
+    result->vibrationalFrequencies={-30,0,25,99.9,100,150};window.parsed_.insert(fixture,result);
+    window.refreshPreflight();
+    bool ok=check(window.files_->item(0,6)->toolTip().contains(QString::fromUtf8("양의 진동수 2개")),"low-frequency diagnostic reaches extraction status tooltip");
+    result->vibrationalFrequencies={100,150};window.refreshPreflight();
+    ok&=check(!window.files_->item(0,6)->toolTip().contains(QString::fromUtf8("양의 진동수")),"100 cm-1 boundary does not trigger low-mode diagnostic");
+    return ok;
+  }
   static bool reactionWorkspace(const QString& fixture){
     MainWindow window;window.show();QTemporaryDir folder;bool ok=true;QStringList paths;for(int i=0;i<6;++i){const auto path=folder.filePath(QString("workspace-%1.log").arg(i));QFile::copy(fixture,path);paths.append(path);}window.parsePaths({paths[0],paths[1],paths[2],paths[3]},false,false);if(!waitForImport(window))return false;
     window.reactionStages_={QJsonObject{{"name","Reaction A"},{"files",QJsonArray{paths[2],paths[0]}},{"reference",paths[0]}},QJsonObject{{"name","Reaction B"},{"files",QJsonArray{paths[0],paths[1]}},{"reference",paths[1]}}};window.activeStage_=0;window.refreshDocumentModel();
@@ -1534,7 +1545,34 @@ int main(int argc,char** argv){
   }
   const si::GaussianParser parser;const auto result=parser.parse(std::filesystem::path(QString::fromLocal8Bit(argv[1]).toStdWString()));ok&=check(result.finalGeometry.size()==3,"renderer geometry");viewer->setMolecule({result.finalGeometry.front()},{result.spinDensities.front()});viewer->resize(500,350);viewer->show();viewer->setInteractionMode(MoleculeViewWidget::InteractionMode::SpinDensity);QCoreApplication::processEvents();QSignalSpy atomSpy(viewer,&MoleculeViewWidget::atomPicked);QTest::mouseClick(viewer,Qt::LeftButton,Qt::NoModifier,viewer->rect().center());ok&=check(atomSpy.count()==1,"atom picking and spin signal");viewer->setInteractionMode(MoleculeViewWidget::InteractionMode::Geometry);QSignalSpy geometrySpy(viewer,&MoleculeViewWidget::geometrySelectionChanged);QTest::mouseClick(viewer,Qt::LeftButton,Qt::NoModifier,viewer->rect().center());ok&=check(geometrySpy.count()>=1&&!viewer->selectedAtoms().isEmpty(),"geometry selection");
   si::SIDocumentModel longDocument;for(int i=0;i<120;++i)longDocument.figureCaptions.append(QStringLiteral("Long preview row %1").arg(i));window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(1);QCoreApplication::processEvents();preview->setDocumentModel(longDocument);QTest::qWait(30);auto* browser=preview->findChild<QTextBrowser*>();auto* scroll=browser?browser->verticalScrollBar():nullptr;ok&=check(scroll&&scroll->maximum()>0,"preview is scrollable");if(scroll&&scroll->maximum()>0){scroll->setValue(scroll->maximum()/2);const int before=scroll->value();longDocument.title=QStringLiteral("Updated title");preview->setDocumentModel(longDocument);QTest::qWait(30);ok&=check(scroll->value()>0&&std::abs(scroll->value()-before)<std::max(20,scroll->maximum()/10),"preview scroll position preserved after refresh");}
+  {
+    MoleculeViewWidget measurement;
+    measurement.setRenderStyle(QJsonObject{{"atomScale",0.28}});
+    measurement.setMolecule({{6,"C",{-1,0,0}},{6,"C",{1,0,0}}},{});
+    measurement.setCameraState({{"yaw",0},{"pitch",0},{"roll",0},{"zoom",1}});
+    measurement.setInteractionMode(MoleculeViewWidget::InteractionMode::Geometry);
+    measurement.resize(500,350);measurement.show();QTest::qWait(50);
+    const auto clean=measurement.renderMolecule(QSize(300,250));
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,175));
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,175));
+    ok&=check(measurement.selectedAtoms()==QVector<int>({1,2})&&measurement.selectedGeometryText()==QStringLiteral("1–2: 2.000 Å"),"picked atoms display their measured distance");
+    ok&=check(measurement.renderMolecule(QSize(300,250))==clean,"selection paths and measurements stay out of exported molecule images");
+    QSignalSpy cleared(&measurement,&MoleculeViewWidget::geometrySelectionChanged);
+    QTest::keyClick(&measurement,Qt::Key_Escape);
+    ok&=check(measurement.selectedAtoms().isEmpty()&&measurement.selectedGeometryText().isEmpty()&&cleared.count()==1,"Escape clears measurement selection and feedback");
+    measurement.setMolecule({{6,"C",{-1,-1,0}},{6,"C",{1,-1,0}},{6,"C",{1,1,0}},{1,"H",{-1,1,1}}},{});
+    measurement.setCameraState({{"yaw",0},{"pitch",0},{"roll",0},{"zoom",1}});
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,280));
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,280));
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,70));
+    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1–2–3: 90.00°"),"three selected atoms show the angle at the middle atom");
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,70));
+    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1–2–3–4: 153.43°"),"four selected atoms show the signed dihedral");
+    measurement.setHydrogenVisibility(true);
+    ok&=check(measurement.selectedAtoms().isEmpty(),"hiding a selected hydrogen clears its measurement path");
+  }
   window.findChild<QTabWidget*>("workspaceTabs")->setCurrentIndex(0);QCoreApplication::processEvents();ok&=Phase1Smoke::run(window);
+  ok&=Phase1Smoke::lowFrequencyDiagnostic(QFileInfo(QString::fromLocal8Bit(argv[1])).absoluteFilePath());
   ok&=Phase1Smoke::reactionWorkspace(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::stageStructureThermodynamics(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::projectManagerWorkflow();
