@@ -310,9 +310,11 @@ void MainWindow::refreshStageNavigation(){
 
 void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSignalBlocker blocked(stageNavigation_);stageNavigation_->setCurrentRow(-1);}if(inputPages_&&filesSection_)scrollTo(filesSection_);if(previewScope_){QSignalBlocker blocked(previewScope_);previewScope_->setCurrentIndex(stage<0?1:0);}refreshStageWorkspace();refreshScopedPreview();if(stageNeedsManualRelative(stage)&&stageManualRelativeValues_){stageSettingsToggle_->setChecked(true);scrollTo(stageStructureRelativeToggle_->isChecked()?static_cast<QWidget*>(stageStructureRelativeToggle_):stageManualRelativeValues_);}}
 
-QString MainWindow::stageReferencePath(const QJsonObject& stage, const QStringList& paths){
+QString MainWindow::stageReferencePath(const QJsonObject& stage, const QStringList& paths) const {
   const auto reference=stage.value("reference").toString();
   if(!reference.isEmpty()&&paths.contains(reference))return reference;
+  const auto globalReference=reference_->currentData().toString();
+  if(paths.contains(globalReference))return globalReference;
   for(const auto& member:stage.value("files").toArray())
     if(paths.contains(member.toString()))return member.toString();
   return {};

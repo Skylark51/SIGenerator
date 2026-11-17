@@ -64,7 +64,22 @@ jobs:
           $scriptUnderTest = Join-Path $scriptDirectory "update-local.ps1"
           Copy-Item native/update-local.ps1 $scriptUnderTest
           $package = (Resolve-Path ./SI-Generator-Windows-x64.zip).Path
-          & $scriptUnderTest -PackagePath $package
+          $global:siRunningExe = Join-Path $target "SIGenerator.exe"
+          function global:Get-Process {
+            [pscustomobject]@{ Path = $global:siRunningExe }
+          }
+          try {
+            $blocked = $false
+            try { & $scriptUnderTest -PackagePath $package } catch {
+              if ($_.Exception.Message -notlike 'Close SIGenerator.exe*') { throw }
+              $blocked = $true
+            }
+            if (-not $blocked) { throw "Updater accepted a running target" }
+            $global:siRunningExe = Join-Path $env:RUNNER_TEMP "other-copy/SIGenerator.exe"
+            & $scriptUnderTest -PackagePath $package
+          } finally {
+            Remove-Item Function:/Get-Process -ErrorAction SilentlyContinue
+          }
           if (-not (Test-Path (Join-Path $target "SIGenerator.exe"))) { throw "Patched EXE missing" }
           if (-not (Get-ChildItem (Join-Path $target "backups") -Directory -Filter "runtime-*" |
               Where-Object { Test-Path (Join-Path $_.FullName "SIGenerator.exe") })) {

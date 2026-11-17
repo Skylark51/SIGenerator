@@ -632,6 +632,28 @@ struct Phase1Smoke {
     window.reactionStages_={stage("First stage",{paths[0],paths[1]},paths[1]),stage("Second stage",{paths[1],paths[2]},paths[2])};
     auto model=window.buildDocumentModel();int relative=0;for(const auto& table:model.tables)if(table.section==si::DocumentSection::RelativeEnergy){++relative;ok&=check(table.rows.size()==(relative==3?1:2),"stage membership and unassigned structure retained");if(relative<3)ok&=check(table.rows.last().last()=="0.00","each stage uses its own reference");}
     ok&=check(relative==3&&model.tables[0].caption.startsWith("First stage")&&std::any_of(model.tables.begin(),model.tables.end(),[](const auto& t){return t.caption.startsWith("Second stage");}),"tables grouped in stage order");
+    // The global selector must not be silently overwritten when tables are split into stages.
+    const auto originalStages=window.reactionStages_;
+    window.reference_->setCurrentIndex(window.reference_->findData(paths[3]));
+    window.refreshDocumentModel();
+    int globalTables=0;
+    for(const auto& table:window.documentModel_.tables)if(table.section==si::DocumentSection::RelativeEnergy){
+      ++globalTables;
+      const int index=globalTables==1?0:globalTables==2?1:3;
+      const double expected=0.01*(index-3)*si::HartreeToKcal;
+      bool valid=false;const double actual=table.rows.first().last().toDouble(&valid);
+      ok&=check(valid&&std::abs(actual-expected)<0.01,"global selection sets energy zero in every stage including unassigned rows");
+    }
+    ok&=check(globalTables==3,"global reference preserves all reaction tables");
+    for(const auto& value:window.reactionStages_)ok&=check(value.toObject()["reference"].toString()==paths[3],"global selection updates persisted stage reference");
+    auto inherited=window.reactionStages_[0].toObject();inherited.remove("reference");
+    ok&=check(window.stageReferencePath(inherited,paths)==paths[3],"stage without reference inherits selected global structure outside stage");
+    inherited["reference"]="missing.log";
+    ok&=check(window.stageReferencePath(inherited,paths)==paths[3],"missing stage reference falls back to global selection");
+    window.reactionStages_=originalStages;
+    window.reference_->activated(window.reference_->currentIndex());
+    ok&=check(window.reactionStages_[0].toObject()["reference"].toString()==paths[3],"reselecting current global reference reapplies it to stages");
+    window.reactionStages_=originalStages;
     window.chooseStageScope(0);
     const int crossStageReference=window.stageReference_->findData(paths[2]);
     ok&=check(crossStageReference>=0,"stage settings offer a structure from another stage");

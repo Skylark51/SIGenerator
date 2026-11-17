@@ -71,7 +71,7 @@ private:
   void addExistingStageStructures();
   void removeStageStructure();
   void clearStageStructures();
-  [[nodiscard]] static QString stageReferencePath(const QJsonObject& stage, const QStringList& paths);
+  [[nodiscard]] QString stageReferencePath(const QJsonObject& stage, const QStringList& paths) const;
   [[nodiscard]] bool stageNeedsManualRelative(int index) const;
   [[nodiscard]] bool stageStructureNeedsRelative(const QJsonObject& stage, const QString& path) const;
   [[nodiscard]] QStringList stageRelativeRow(const QJsonObject& stage, const QString& path, const QStringList& headers, QStringList row) const;
