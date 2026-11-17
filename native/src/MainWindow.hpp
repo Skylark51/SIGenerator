@@ -79,6 +79,10 @@ private:
   void moveStageStructure(int delta);
   void updateStructureOrderButtons();
   void showExtractionDetails();
+  void editAtomOrdering();
+  std::shared_ptr<const si::GaussianResult> orderedGaussian(const QString& path) const;
+  static QString atomGeometryHash(const si::GaussianResult& result);
+  QJsonObject atomOrderings_;
   void markLabelsEdited();
   QListWidget* stageNavigation_{};
   QLabel* projectHeading_{};

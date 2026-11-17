@@ -10,6 +10,17 @@ namespace si {
 enum class SpeMatch { Verified, MissingData, MissingConditions, Atoms, Charge, Multiplicity, Geometry };
 SpeMatch validateSpe(const GaussianResult& primary,const GaussianResult& spe);
 bool compatibleSpe(SpeMatch match);
+struct AtomOrdering {
+  // Zero-based source indices in reference order; coordinates are never rotated.
+  std::vector<int> sourceIndices;
+  double rmsd{-1.0};
+  std::string reason;
+  bool accepted{};
+};
+[[nodiscard]] AtomOrdering matchAtomOrdering(const std::vector<Atom>& reference,
+                                           const std::vector<Atom>& source, double maximumRmsd=0.75);
+// Validates a complete permutation before changing coordinates or spin atom IDs.
+bool applyAtomOrdering(GaussianResult& result, const std::vector<int>& sourceIndices);
 inline constexpr double LegacyTemperatureKelvin = 298.15;
 
 inline constexpr double HartreeToKcal = 627.509474;

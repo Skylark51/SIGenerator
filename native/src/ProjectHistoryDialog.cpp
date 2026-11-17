@@ -32,6 +32,7 @@ QString describeItem(const ProjectChange& change){
   static const QHash<QString,QString> labels{
     {"Order",QObject::tr("순서")},{"name",QObject::tr("이름")},{"files",QObject::tr("포함된 구조")},
     {"reference",QObject::tr("기준 구조")},{"absolute",QObject::tr("절대 에너지 표")},
+    {"atom_orderings",QObject::tr("원자 순서 대응표")},
     {"relative",QObject::tr("상대 에너지 표")},{"reference_settings",QObject::tr("기준 구조와 에너지 기준")},
     {"manual_energy_tables",QObject::tr("수동 에너지 표")},{"energy_input_mode",QObject::tr("에너지 입력 방식")},
     {"molecular_figures",QObject::tr("구성·카메라·캡션")},{"figure_settings",QObject::tr("구성·카메라·캡션")},

@@ -510,7 +510,7 @@ std::vector<si::EnergyRecord> MainWindow::energyRecords() const{
   for(int row=0;row<files_->rowCount();++row){
     const auto* item=files_->item(row,0);if(!item)continue;
     const auto path=item->data(Qt::UserRole).toString();const auto main=parsed_.value(path);if(!main)continue;
-    si::EnergyRecord record;record.name=item->text().toStdString();record.frequency=*main;
+    si::EnergyRecord record;record.name=item->text().toStdString();record.frequency=*orderedGaussian(path);
     if(const auto pair=parsed_.value(pairedPaths_.value(path));pair&&useSinglePoint(path,*main,*pair)){record.singlePoint=*pair;if(record.frequency.finalGeometry.empty()&&!pair->finalGeometry.empty())record.frequency.finalGeometry=pair->finalGeometry;}
     records.push_back(std::move(record));
   }
@@ -525,6 +525,7 @@ void MainWindow::refreshPreflight(){
   for(auto& record:records){
     const int row=paths.indexOf(QDir::fromNativeSeparators(QString::fromStdWString(record.frequency.path.wstring())));
     if(row<0)continue;const auto& freq=record.frequency;QStringList errors,warnings=conditionWarnings;
+    if(atomOrderings_.contains(paths[row])&&orderedGaussian(paths[row])==parsed_.value(paths[row]))warnings.append(tr("원본 좌표 변경 또는 대응표 오류로 저장된 원자 순서를 적용하지 않았습니다. 원자 순서 자동 통일을 다시 실행하세요."));
     if(!freq.success)errors.append(QString::fromStdString(freq.reason));
     if(freq.finalGeometry.empty())errors.append("Final geometry missing");
     if(energyInputMode_->currentData().toString()=="automatic"&&!si::selectEnergy(record,basis))errors.append("Required energy missing for selected mode");
@@ -535,7 +536,7 @@ void MainWindow::refreshPreflight(){
     if(lowModes>0)warnings.append(tr("100 cm⁻¹ 미만의 양의 진동수 %1개: 조화 근사 엔트로피를 검토하세요. 자동 준조화 보정은 적용하지 않습니다.").arg(static_cast<qlonglong>(lowModes)));
     if(!record.singlePoint||!record.singlePoint->scfEnergy)warnings.append("SPE missing");
     if(const auto spe=parsed_.value(pairedPaths_.value(paths[row]))){
-      const auto match=si::validateSpe(freq,*spe);
+      const auto match=si::validateSpe(*parsed_.value(paths[row]),*spe);
       if(match!=si::SpeMatch::Verified)warnings.append(speMatchMessage(match));
       if(match==si::SpeMatch::Charge&&freq.multiplicity&&spe->multiplicity&&freq.multiplicity!=spe->multiplicity)
         warnings.append(speMatchMessage(si::SpeMatch::Multiplicity));

@@ -41,6 +41,7 @@ struct ProjectState {
   QJsonObject gaussianSnapshots;
   QJsonObject pairedSnapshotPaths;
   QJsonObject manualPairedPaths;
+  QJsonObject atomOrderings;
 };
 class ProjectStore final {
 public:
