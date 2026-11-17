@@ -27,6 +27,38 @@ QString number(const std::optional<double>& value,int digits,int precision){retu
 QString manualNumber(const QString& value,int){bool ok=false;const double parsed=value.toDouble(&ok);return ok?si::formatNumber(parsed,2,0):value;}
 void filterRelativeTable(si::DocumentTable& table,bool dispersion,bool complexation){const auto columns=si::relativeEnergyColumns(dispersion,complexation);QStringList headers;QVector<QStringList> rows;for(int logical:columns)headers.append(table.headers[logical+1]);for(const auto& source:table.rows){QStringList row{source.value(0)};for(int logical:columns)row.append(source.value(logical+1));rows.append(row);}table.headers=QStringList{QString()}+headers;table.rows=rows;table.boldColumns.clear();for(int i=0;i<table.headers.size();++i)if(table.headers[i]==QStringLiteral("E_{Total}")||table.headers[i]==QStringLiteral("ΔG^{c}"))table.boldColumns.append(i);}
 QString atomLabel(const si::GaussianResult& result,int atomId,bool showNumber=true){if(atomId>0&&static_cast<size_t>(atomId)<=result.finalGeometry.size())return QString::fromStdString(result.finalGeometry[static_cast<size_t>(atomId-1)].symbol)+(showNumber?QStringLiteral("(%1)").arg(atomId):QString());return showNumber?QStringLiteral("At(%1)").arg(atomId):QStringLiteral("At");}
+void populateManualGeometry(si::DocumentTable& table,const std::vector<si::EnergyRecord>& records,
+                            const QVector<QVector<int>>& groups,bool showNumbers,int precision,
+                            const QStringList& names={}){
+  table.headers={QString()};table.rows.clear();
+  std::vector<std::vector<int>> elements;
+  for(const auto& group:groups){
+    const auto source=std::find_if(records.begin(),records.end(),[&](const auto& record){return std::all_of(group.begin(),group.end(),[&](int id){return id>0&&static_cast<size_t>(id)<=record.frequency.finalGeometry.size();});});
+    QStringList labels;std::vector<int> expected;
+    for(int id:group){
+      labels.append(source!=records.end()?atomLabel(source->frequency,id,showNumbers):(showNumbers?QStringLiteral("At(%1)").arg(id):QStringLiteral("At")));
+      expected.push_back(source!=records.end()?source->frequency.finalGeometry[id-1].atomicNumber:-1);
+    }
+    elements.push_back(std::move(expected));
+    table.headers.append(labels.join('-')+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));
+  }
+  for(size_t i=0;i<records.size();++i){
+    const auto& record=records[i];const auto& geometry=record.frequency.finalGeometry;
+    QStringList row{names.size()==static_cast<int>(records.size())?names[static_cast<int>(i)]:QString::fromStdString(record.name)};
+    for(int column=0;column<groups.size();++column){
+      const auto& group=groups[column];bool compatible=true;
+      for(int k=0;k<group.size();++k){const int id=group[k];if(id<=0||static_cast<size_t>(id)>geometry.size()||geometry[id-1].atomicNumber!=elements[column][k])compatible=false;}
+      std::optional<double> value;
+      if(compatible){
+        if(group.size()==2)value=si::distance(geometry,group[0],group[1]);
+        else if(group.size()==3)value=si::angle(geometry,group[0],group[1],group[2]);
+        else if(group.size()==4)value=si::dihedral(geometry,group[0],group[1],group[2],group[3]);
+      }
+      row.append(number(value,3,precision));
+    }
+    table.rows.append(row);
+  }
+}
 }
 
 QStringList MainWindow::preflightErrors() const{
@@ -280,7 +312,27 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
         geometryAutoInfo_->setText(tr("RMSD 자동 분석: %1개 구조, 최대 RMSD %2 Å, 거리 %3개. 원자 번호는 구조 간에 대응해야 합니다.").arg(suggestions.compatibleStructures).arg(maximum,0,'f',3).arg(geometryGroups.size()));
       }
     }
-    if(!geometryGroups.isEmpty()){si::DocumentTable table{si::DocumentSection::SelectedGeometry,tr("Selected Geometries of %1 in Å and °.").arg(si::displayMechanism(model)),{QString()},{},{}};for(const auto& group:geometryGroups){QStringList atoms;for(const int id:group)atoms.append(atomLabel(*geometryLabels,id,geometryAtomNumbers_->isChecked()));table.headers.append(atoms.join('-')+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));}const auto names=lines(geometryNames_->toPlainText());for(size_t index=0;index<records.size();++index){const auto& record=records[index];QStringList row{names.size()==static_cast<int>(records.size())?names[static_cast<int>(index)]:QString::fromStdString(record.name)};for(const auto& group:geometryGroups){if(automaticGeometry&&!compatibleGeometryRecords.contains(index)){row.append(QStringLiteral("N/A"));continue;}std::optional<double> value;if(group.size()==2)value=si::distance(record.frequency.finalGeometry,group[0],group[1]);else if(group.size()==3)value=si::angle(record.frequency.finalGeometry,group[0],group[1],group[2]);else if(group.size()==4)value=si::dihedral(record.frequency.finalGeometry,group[0],group[1],group[2],group[3]);row.append(number(value,3,precision));}table.rows.append(row);}model.tables.append(table);}
+    if(!geometryGroups.isEmpty()){
+      si::DocumentTable table{si::DocumentSection::SelectedGeometry,tr("Selected Geometries of %1 in Å and °.").arg(si::displayMechanism(model)),{QString()},{},{}};
+      const auto names=lines(geometryNames_->toPlainText());
+      if(!automaticGeometry)populateManualGeometry(table,records,geometryGroups,geometryAtomNumbers_->isChecked(),precision,names);
+      else {
+        for(const auto& group:geometryGroups){QStringList atoms;for(int id:group)atoms.append(atomLabel(*geometryLabels,id,geometryAtomNumbers_->isChecked()));table.headers.append(atoms.join('-')+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));}
+        for(size_t index=0;index<records.size();++index){
+          const auto& record=records[index];QStringList row{names.size()==static_cast<int>(records.size())?names[static_cast<int>(index)]:QString::fromStdString(record.name)};
+          for(const auto& group:geometryGroups){
+            if(!compatibleGeometryRecords.contains(index)){row.append(QStringLiteral("N/A"));continue;}
+            std::optional<double> value;
+            if(group.size()==2)value=si::distance(record.frequency.finalGeometry,group[0],group[1]);
+            else if(group.size()==3)value=si::angle(record.frequency.finalGeometry,group[0],group[1],group[2]);
+            else if(group.size()==4)value=si::dihedral(record.frequency.finalGeometry,group[0],group[1],group[2],group[3]);
+            row.append(number(value,3,precision));
+          }
+          table.rows.append(row);
+        }
+      }
+      model.tables.append(table);
+    }
     QVector<QStringList> excited;QVector<QStringList> irc;for(const auto& record:records){for(const auto& state:record.frequency.excitedStates)excited.append({QString::fromStdString(record.name),QString::number(state.index),si::formatNumber(state.energyEv,4,precision),number(state.wavelengthNm,1,precision),number(state.oscillatorStrength,4,precision)});for(const auto& point:record.frequency.ircPoints)irc.append({QString::fromStdString(record.name),QString::number(point.index),QString::fromStdString(point.direction),number(point.scfEnergy,8,precision)});}if(!excited.isEmpty())model.tables.append({si::DocumentSection::Other,tr("TD-DFT excited states"),{tr("Structure"),tr("State"),tr("Energy (eV)"),tr("Wavelength (nm)"),tr("f")},excited,{}});if(!irc.isEmpty())model.tables.append({si::DocumentSection::Other,tr("IRC reaction-coordinate points"),{tr("Structure"),tr("Point"),tr("Direction"),tr("SCF energy (Hartree)")},irc,{}});
   }
   applyReactionStages(model);for(int i=0;i<model.tables.size();++i)model.tables[i].documentNumber=i+1;return model;
@@ -312,7 +364,11 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
     {if(!stage.value(key).toBool(key=="absolute"?includeAbsolute_->isChecked():true))continue;const auto members=stage["files"].toArray();auto split=table;split.stageId=stage.value("id").toString(stage["name"].toString());split.rows.clear();QStringList splitPaths;std::vector<si::EnergyRecord> selected;
       for(const auto& member:members){const int i=paths.indexOf(member.toString());if(i<0)continue;if(manualEnergy(table)){for(const auto& row:table.rows)if(row.value(0)==labels[i]){split.rows.append(row);splitPaths.append(member.toString());}}else {split.rows.append(table.rows[i]);splitPaths.append(member.toString());}if(i<static_cast<int>(records.size()))selected.push_back(records[i]);}
       if(split.rows.isEmpty())continue;
-      if(key!="geometry")split.caption=stage["name"].toString()+": "+table.caption;
+      split.caption=stage["name"].toString()+": "+table.caption;
+      if(key=="geometry"){
+        QStringList names;for(const auto& row:split.rows)names.append(row.value(0));
+        populateManualGeometry(split,selected,indexGroups(geometryIndices_->toPlainText()),geometryAtomNumbers_->isChecked(),model.precisionOverride,names);
+      }
       if(key=="spin"&&spinIndices_->toPlainText().trimmed().isEmpty()&&!selected.empty()){
         // The global six-atom ranking can select IDs absent from another
         // reaction. Rank only atoms reported for every structure in this stage.

@@ -1,4 +1,5 @@
 #include "ProjectHistory.hpp"
+#include "GaussianSnapshot.hpp"
 #include <QMenu>
 #include "DocumentPreviewWidget.hpp"
 #include "MainWindow.hpp"
@@ -807,6 +808,53 @@ struct Phase1Smoke {
     operate("restore");ok&=check(window.atomOrderings_.isEmpty()&&window.orderedGaussian(paths[1])==raw,"original order can be restored");
     ok&=check(window.spinIndices_->toPlainText()=="1\n1\n1"&&window.figureSettings_["retained_hydrogens"].toObject()[paths[1]].toInt()==1,"restoring raw order restores physical atom selections");
     return ok;
+  }
+  static bool stageGeometryLabels(const QString& fixture){
+    MainWindow window;QTemporaryDir folder;bool ok=true;QStringList paths;
+    for(int i=0;i<3;++i){const auto path=folder.filePath(QString("geometry-%1.log").arg(i));QFile::copy(fixture,path);paths.append(path);}
+    window.parsePaths(paths,false,false);if(!waitForImport(window))return false;
+    for(int i=0;i<3;++i){
+      auto record=std::make_shared<si::GaussianResult>(*window.parsed_.value(paths[i]));
+      record->finalGeometry={{27,"Co",{0,0,0}},{8,"O",{1.864,0,0}},{8,"O",{3.287,0,0}},
+        {i?6:1,i?"C":"H",{7.265,0,0}},{i?8:1,i?"O":"H",{0,5.694,0}}};
+      if(i==2)record->finalGeometry[4]={7,"N",{0,2.0,0}};
+      window.parsed_[paths[i]]=record;
+    }
+    window.geometryIndices_->setPlainText("1 5\n1 2\n2 3\n3 4\n1 2 3\n1 2 3 4");
+    window.geometryAtomNumbers_->setChecked(false);
+    window.reactionStages_={QJsonObject{{"id","first"},{"name","First reaction"},{"files",QJsonArray{paths[0]}}},QJsonObject{{"id","peroxo"},{"name","Hydroperoxo mechanism"},{"files",QJsonArray{paths[1],paths[2]}}}};
+    auto model=window.buildDocumentModel();const si::DocumentTable* peroxo=nullptr;
+    for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.stageId=="peroxo")peroxo=&table;
+    ok&=check(peroxo&&peroxo->headers.value(1)=="Co-O (Å)"&&peroxo->headers.value(4)=="O-C (Å)"&&peroxo->rows[0].value(1)=="5.694"&&peroxo->rows[0].value(4)=="3.978","manual stage geometry uses stage elements instead of first reaction hydrogen labels");
+    ok&=check(peroxo&&peroxo->caption.startsWith("Hydroperoxo mechanism:")&&peroxo->headers.value(5)=="Co-O-O (°)"&&peroxo->headers.value(6)=="Co-O-O-C (°)","manual stage geometry identifies reaction and angle/dihedral atoms");
+    ok&=check(peroxo&&peroxo->rows[1].value(1)=="N/A"&&peroxo->rows[1].value(2)=="1.864","different elements are not reported under a misleading shared column");
+    window.geometryAtomNumbers_->setChecked(true);model=window.buildDocumentModel();
+    for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.stageId=="peroxo")ok&=check(table.headers.value(1)=="Co(1)-O(5) (Å)"&&table.headers.value(4)=="O(3)-C(4) (Å)","stage geometry atom numbers remain attached to correct elements");
+    window.reactionStages_={};model=window.buildDocumentModel();
+    const auto* global=model.table(si::DocumentSection::SelectedGeometry);
+    ok&=check(global&&global->headers.value(1)=="Co(1)-H(5) (Å)"&&global->rows[1].value(1)=="N/A","unsplit mixed-element manual geometry also refuses mislabeled measurements");
+    return ok;
+  }
+  static bool auditSavedStageGeometry(const QString& project){
+    ProjectState state;QString error;if(!ProjectStore::load(project,&state,&error))return false;
+    MainWindow window;const auto names=state.structureNames.split('\n');
+    window.files_->setRowCount(state.files.size());
+    for(int i=0;i<state.files.size();++i){
+      for(int col=0;col<7;++col)window.files_->setItem(i,col,new QTableWidgetItem(col==0?names.value(i):QString()));
+      window.files_->item(i,0)->setData(Qt::UserRole,state.files[i]);si::GaussianResult raw;
+      if(!si::GaussianSnapshot::decode(state.gaussianSnapshots.value(state.files[i]).toObject(),&raw))return false;
+      window.parsed_.insert(state.files[i],std::make_shared<si::GaussianResult>(std::move(raw)));
+    }
+    window.reactionStages_=state.reactionStages;window.atomOrderings_=state.atomOrderings;
+    window.geometryIndices_->setPlainText(state.geometryIndices);window.geometryAtomNumbers_->setChecked(state.geometryAtomNumbers);
+    const auto model=window.buildDocumentModel();QJsonArray inspected;
+    for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.caption.contains("peroxo",Qt::CaseInsensitive)){
+      QJsonArray headers,rows;for(const auto& header:table.headers)headers.append(header);
+      for(const auto& row:table.rows){QJsonArray cells;for(const auto& cell:row)cells.append(cell);rows.append(cells);}
+      inspected.append(QJsonObject{{"caption",table.caption},{"headers",headers},{"rows",rows}});
+    }
+    if(qEnvironmentVariableIsSet("SI_GEOMETRY_AUDIT_OUTPUT")){QFile output(qEnvironmentVariable("SI_GEOMETRY_AUDIT_OUTPUT"));if(!output.open(QIODevice::WriteOnly))return false;output.write(QJsonDocument(inspected).toJson());}
+    return check(!inspected.isEmpty(),"saved project stage geometry audited without writing the project or Gaussian originals");
   }
   static bool automaticGeometry(){
     MainWindow window;QTemporaryDir folder;bool ok=true;
@@ -1666,6 +1714,8 @@ int main(int argc,char** argv){
   ok&=Phase1Smoke::responsiveImport(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::automaticGeometry();
   ok&=Phase1Smoke::atomOrderingWorkflow();
+  ok&=Phase1Smoke::stageGeometryLabels(QString::fromLocal8Bit(argv[1]));
+  if(qEnvironmentVariableIsSet("SI_GEOMETRY_AUDIT_PROJECT"))ok&=Phase1Smoke::auditSavedStageGeometry(qEnvironmentVariable("SI_GEOMETRY_AUDIT_PROJECT"));
   ok&=figureWorkflowSmoke();
   ok&=tableImageSmoke();
   ok&=singleLineTableSmoke();
