@@ -8,6 +8,8 @@
 #include <QImage>
 #include <QJsonObject>
 #include <QHash>
+#include <QQuaternion>
+#include <QVector3D>
 
 class QPainter;
 
@@ -25,6 +27,9 @@ public:
   [[nodiscard]] bool atomIndicesVisible() const { return showIndices_; }
   void setHydrogenVisibility(bool hideHydrogens, int retainedHydrogenIndex = 0);
   void resetView();
+  void fitView();
+  void centerOnSelection();
+  void setStandardView(int plane);
   void setCaptureFraming(bool enabled) { captureFraming_=enabled;update(); }
   void setRenderStyle(const QJsonObject& style);
   QJsonObject renderStyle() const { return renderStyle_; }
@@ -49,6 +54,7 @@ protected:
   void mouseReleaseEvent(QMouseEvent* event) override;
   void wheelEvent(QWheelEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
+  void mouseDoubleClickEvent(QMouseEvent* event) override;
 
 private:
   struct ProjectedAtom { QPointF point; double depth{}; double radius{}; int index{}; };
@@ -77,6 +83,7 @@ private:
   int retainedHydrogenIndex_{};
   bool captureFraming_{};
   QPoint lastMouse_;
+  QPoint pressMouse_;
   bool dragging_{};
   bool moved_{};
   Qt::MouseButton dragButton_{Qt::NoButton};
@@ -85,4 +92,6 @@ private:
   double roll_{};
   double zoom_{1.0};
   QPointF pan_;
+  QQuaternion orientation_;
+  std::optional<QVector3D> rotationCenter_;
 };

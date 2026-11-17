@@ -107,6 +107,9 @@ QWidget* MainWindow::createStageNavigation(){
     else if(action==remove)removeReactionStage(index);
   });
   auto* add=new QPushButton(tr("＋ 반응 추가"),panel);add->setObjectName("addReactionStage");layout->addWidget(add);connect(add,&QPushButton::clicked,this,[this]{addReactionStage();});
+  auto* folders=new QPushButton(tr("하위 폴더별 반응 만들기"),panel);folders->setObjectName("addFolderStages");
+  folders->setToolTip(tr("가져온 구조를 원본 폴더별 반응으로 묶습니다. 기존 반응에 배정된 구조는 건너뜁니다."));
+  layout->addWidget(folders);connect(folders,&QPushButton::clicked,this,&MainWindow::addFolderStages);
   auto* duplicate=new QPushButton(tr("선택 반응 복제"),panel);layout->addWidget(duplicate);connect(duplicate,&QPushButton::clicked,this,[this]{addReactionStage(true);});
   auto* remove=new QPushButton(tr("선택 반응 삭제"),panel);layout->addWidget(remove);connect(remove,&QPushButton::clicked,this,[this]{removeReactionStage(activeStage_);});
   auto* pool=new QPushButton(tr("전체 구조 보관함"),panel);pool->setObjectName("showStructurePool");layout->addWidget(pool);connect(pool,&QPushButton::clicked,this,[this]{chooseStageScope(-2);});
@@ -121,6 +124,14 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   structureScope_=new QLabel(tr("전체 구조 보관함"),box);structureScope_->setWordWrap(true);structureScope_->setObjectName("structureScope");layout->addWidget(structureScope_);
   stageSettings_=new QWidget(box);auto* stageLayout=new QVBoxLayout(stageSettings_);stageLayout->setContentsMargins(0,0,0,0);
   stageNameEdit_=new QLineEdit(stageSettings_);stageNameEdit_->setObjectName("activeStageName");stageNameEdit_->setPlaceholderText(tr("반응 단계 이름"));stageLayout->addWidget(stageNameEdit_);
+  stageReferenceMode_=new QComboBox(stageSettings_);stageReferenceMode_->setObjectName("activeStageReferenceMode");
+  stageReferenceMode_->addItem(tr("전체 기준 방식 따르기"),"inherit");stageReferenceMode_->addItem(tr("이 반응의 기준 구조"),"single");stageReferenceMode_->addItem(tr("이 반응의 수동 기준값 (Hartree)"),"manual_numeric");
+  stageLayout->addWidget(stageReferenceMode_);
+  stageManualReference_=new QLineEdit(stageSettings_);stageManualReference_->setObjectName("activeStageManualReference");stageManualReference_->setPlaceholderText(tr("이 반응의 기준 에너지 (Hartree)"));stageLayout->addWidget(stageManualReference_);
+  connect(stageReferenceMode_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{
+    if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["reference_mode"]=stageReferenceMode_->currentData().toString();reactionStages_[activeStage_]=stage;refreshStageWorkspace();scheduleDocumentRefresh();});
+  connect(stageManualReference_,&QLineEdit::textEdited,this,[this](const QString& text){
+    if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["manual_reference"]=text;reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});
   auto* referenceRow=new QHBoxLayout;referenceRow->addWidget(new QLabel(tr("기준 구조"),stageSettings_));stageReference_=new QComboBox(stageSettings_);stageReference_->setObjectName("activeStageReference");referenceRow->addWidget(stageReference_,1);stageLayout->addLayout(referenceRow);
   auto* tables=new QHBoxLayout;const QStringList names={tr("절대 에너지"),tr("상대 에너지"),tr("스핀"),tr("기하")};for(int i=0;i<4;++i){stageTableChecks_[i]=new QCheckBox(names[i],stageSettings_);stageTableChecks_[i]->setObjectName("stageTable_"+tableKeys[i]);tables->addWidget(stageTableChecks_[i]);connect(stageTableChecks_[i],&QCheckBox::toggled,this,[this,i](bool checked){if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage[tableKeys[i]]=checked;reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});}stageLayout->addLayout(tables);
   stageStructureRelativeToggle_=new QCheckBox(tr("이 반응에서 구조별 상대 에너지·열역학 입력 사용"),stageSettings_);
@@ -157,7 +168,7 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   stageSettings_->hide();
   connect(stageNameEdit_,&QLineEdit::textEdited,this,[this](const QString& text){if(updatingStageWorkspace_||activeStage_<0||text.trimmed().isEmpty())return;auto stage=reactionStages_[activeStage_].toObject();stage["name"]=text;reactionStages_[activeStage_]=stage;refreshStageNavigation();scheduleDocumentRefresh();});
   connect(stageNameEdit_,&QLineEdit::editingFinished,this,[this]{if(!updatingStageWorkspace_&&activeStage_>=0&&stageNameEdit_->text().trimmed().isEmpty())refreshStageWorkspace();});
-  connect(stageReference_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["reference"]=stageReference_->currentData().toString();reactionStages_[activeStage_]=stage;scheduleDocumentRefresh();});
+  connect(stageReference_,qOverload<int>(&QComboBox::currentIndexChanged),this,[this]{if(updatingStageWorkspace_||activeStage_<0)return;auto stage=reactionStages_[activeStage_].toObject();stage["reference"]=stageReference_->currentData().toString();stage["reference_mode"]="single";reactionStages_[activeStage_]=stage;refreshStageWorkspace();scheduleDocumentRefresh();});
   stageGrid_=new StructureAssignmentTable(box,true);stageGrid_->setObjectName("stageWorkspaceGrid");stageGrid_->setMinimumHeight(280);layout->insertWidget(1,stageGrid_,1);
   files_=new QTableWidget(0,7,this);files_->setObjectName("structureList");files_->setHorizontalHeaderLabels({"Structure","Mult.","Freq","SPE","Imag.","Spin","Status"});files_->hide();connect(files_,&QTableWidget::itemSelectionChanged,this,&MainWindow::selectStructure);
   connect(files_,&QTableWidget::itemSelectionChanged,this,[this]{if(updatingStageWorkspace_||files_->currentRow()<0)return;const auto path=files_->item(files_->currentRow(),0)->data(Qt::UserRole).toString();for(int row=0;row<stageGrid_->rowCount();++row)if(stageGrid_->item(row,0)->data(Qt::UserRole).toString()==path){QSignalBlocker blocked(stageGrid_);stageGrid_->setCurrentCell(row,0);if(stageLabelEdit_){QSignalBlocker editBlocked(stageLabelEdit_);stageLabelEdit_->setText(stageGrid_->item(row,0)->text());stageLabelPreview_->setText(si::formattedTextHtml(si::structureLabelMarkup(stageLabelEdit_->text())));}break;}updateStructureOrderButtons();});
@@ -318,6 +329,8 @@ void MainWindow::chooseStageScope(int stage){activeStage_=stage;if(stage<0){QSig
 QString MainWindow::stageReferencePath(const QJsonObject& stage, const QStringList& paths) const {
   const auto reference=stage.value("reference").toString();
   if(!reference.isEmpty()&&paths.contains(reference))return reference;
+  if(stage.value("reference_mode").toString()=="single")
+    for(const auto& member:stage.value("files").toArray())if(paths.contains(member.toString()))return member.toString();
   const auto globalReference=reference_->currentData().toString();
   if(paths.contains(globalReference))return globalReference;
   for(const auto& member:stage.value("files").toArray())
@@ -329,7 +342,9 @@ bool MainWindow::stageNeedsManualRelative(int index) const {
   if(index<0||index>=reactionStages_.size())return false;
   const auto stage=reactionStages_[index].toObject();
   auto structures=stage.value("files").toArray();
-  if(energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single")
+  const auto localMode=stage.value("reference_mode").toString("inherit");
+  const auto mode=localMode=="inherit"?referenceMode_->currentData().toString():localMode;
+  if(energyInputMode_->currentData().toString()=="automatic"&&mode=="single")
     structures.append(stageReferencePath(stage,sourcePaths()));
   QSet<int> atomCounts;
   for(const auto& value:structures){
@@ -361,6 +376,10 @@ void MainWindow::refreshStageWorkspace(){
   stageManualRelativeHelp_->setText(needsManual?tr("⚠ 원자 수가 다른 구조입니다. 절대 전자에너지 차이로 상대에너지를 계산할 수 없습니다. 구조별 입력을 켜서 원자 수가 다른 구조만 보정하거나, 아래에 모든 구조의 ΔG (kcal/mol)를 입력하세요."):tr("한 줄에 하나씩 ΔG (kcal/mol) 수치를 입력하세요. 현재 반응의 구조 순서에 대응합니다."));
   {QSignalBlocker blocked(stageNameEdit_);if(stageNameEdit_->text()!=stage["name"].toString())stageNameEdit_->setText(stage["name"].toString());}
   populateStageReferences(stageReference_,paths,labels,stage["files"].toArray(),stageReferencePath(stage,paths));
+  {QSignalBlocker blocked(stageReferenceMode_);stageReferenceMode_->setCurrentIndex(std::max(0,stageReferenceMode_->findData(stage.value("reference_mode").toString("inherit"))));}
+  const bool localManual=stage.value("reference_mode").toString()=="manual_numeric";
+  stageManualReference_->setVisible(localManual);stageReference_->setEnabled(!localManual);
+  {QSignalBlocker blocked(stageManualReference_);stageManualReference_->setText(stage.value("manual_reference").toString());}
 
   for(int i=0;i<4;++i){QSignalBlocker blocked(stageTableChecks_[i]);stageTableChecks_[i]->setChecked(stage.value(tableKeys[i]).toBool(i==0?includeAbsolute_->isChecked():true));}
   const int row=stageGrid_->currentRow();const auto text=row>=0?stageGrid_->item(row,0)->text():QString();{QSignalBlocker blocked(stageLabelEdit_);if(stageLabelEdit_->text()!=text)stageLabelEdit_->setText(text);}stageLabelEdit_->setEnabled(row>=0);stageLabelPreview_->setText(si::formattedTextHtml(si::structureLabelMarkup(text)));updatingStageWorkspace_=false;updateStructureStatusCells();updateStructureOrderButtons();
@@ -413,8 +432,24 @@ void MainWindow::refreshScopedPreview(){
   }preview_->setDocumentModel(model);
 }
 
+void MainWindow::addFolderStages(){
+  if(parsing_)return;
+  QSet<QString> assigned;for(const auto& value:reactionStages_)for(const auto& member:value.toObject()["files"].toArray())assigned.insert(member.toString());
+  QStringList folders;QHash<QString,QJsonArray> members;
+  for(const auto& path:sourcePaths())if(!assigned.contains(path)){
+    const auto folder=QFileInfo(path).absolutePath();if(!members.contains(folder))folders.append(folder);members[folder].append(path);
+  }
+  for(const auto& folder:folders){
+    const auto name=QDir(baseDirectory_->text()).relativeFilePath(folder);
+    reactionStages_.append(QJsonObject{{"id",QUuid::createUuid().toString(QUuid::WithoutBraces)},{"name",name=="."?QFileInfo(folder).fileName():name},
+      {"files",members[folder]},{"reference",members[folder].first()},{"reference_mode","single"},{"absolute",false}});
+  }
+  if(!folders.isEmpty()){activeStage_=reactionStages_.size()-folders.size();refreshStageNavigation();chooseStageScope(activeStage_);stageSettingsToggle_->setChecked(true);scheduleDocumentRefresh();}
+  status_->setText(tr("원본 폴더별 반응 %1개를 추가했습니다. 각 반응의 기준점을 따로 지정할 수 있습니다.").arg(folders.size()));
+}
+
 void MainWindow::addReactionStage(bool duplicate){
-  if(duplicate&&(activeStage_<0||activeStage_>=reactionStages_.size()))return;bool accepted=false;auto stage=duplicate?reactionStages_[activeStage_].toObject():QJsonObject();const auto suggestion=duplicate?stage["name"].toString()+tr(" 복사"):tr("반응 단계 %1").arg(reactionStages_.size()+1);const auto name=QInputDialog::getText(this,tr("반응 단계"),tr("이름"),QLineEdit::Normal,suggestion,&accepted);if(!accepted||name.trimmed().isEmpty())return;stage["name"]=name;stage["id"]=QUuid::createUuid().toString(QUuid::WithoutBraces);if(!duplicate){stage["files"]=QJsonArray();stage["absolute"]=false;}reactionStages_.append(stage);activeStage_=reactionStages_.size()-1;refreshStageNavigation();chooseStageScope(activeStage_);scheduleDocumentRefresh();
+  if(duplicate&&(activeStage_<0||activeStage_>=reactionStages_.size()))return;bool accepted=false;auto stage=duplicate?reactionStages_[activeStage_].toObject():QJsonObject();const auto suggestion=duplicate?stage["name"].toString()+tr(" 복사"):tr("반응 단계 %1").arg(reactionStages_.size()+1);const auto name=QInputDialog::getText(this,tr("반응 단계"),tr("이름"),QLineEdit::Normal,suggestion,&accepted);if(!accepted||name.trimmed().isEmpty())return;stage["name"]=name;stage["id"]=QUuid::createUuid().toString(QUuid::WithoutBraces);if(!duplicate){stage["files"]=QJsonArray();stage["absolute"]=false;stage["reference_mode"]="single";}reactionStages_.append(stage);activeStage_=reactionStages_.size()-1;refreshStageNavigation();chooseStageScope(activeStage_);scheduleDocumentRefresh();
 }
 
 void MainWindow::renameReactionStage(int index){

@@ -65,6 +65,7 @@ private:
   void refreshScopedPreview();
   void chooseStageScope(int stage);
   void addReactionStage(bool duplicate=false);
+  void addFolderStages();
   void renameReactionStage(int index);
   void removeReactionStage(int index);
   void pasteStructureTitles(const QString& text);
@@ -92,6 +93,8 @@ private:
   QLineEdit* stageLabelEdit_{};
   QLabel* stageLabelPreview_{};
   QComboBox* stageReference_{};
+  QComboBox* stageReferenceMode_{};
+  QLineEdit* stageManualReference_{};
   QCheckBox* stageManualRelativeToggle_{};
   QCheckBox* stageStructureRelativeToggle_{};
   QTextEdit* stageManualRelativeValues_{};
@@ -209,6 +212,8 @@ private:
   QLineEdit* correspondingEmail_{};
   QTextEdit* computationalDetails_{};
   QTextEdit* referencesText_{};
+  QComboBox* tableCaptionPosition_{};
+  QComboBox* figureCaptionPosition_{};
   bool detailsEdited_{};
   QLineEdit* siOutputPath_{};
   QLineEdit* xyzOutputPath_{};

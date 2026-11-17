@@ -163,6 +163,10 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
   int figureNumber=0;
   const int figureCount=std::max(model.figures.size(),model.figureCaptions.size());
   auto writeFigure=[&](int i){
+    const auto customCaption=model.figureCaptions.value(i);
+    const auto caption=customCaption.isEmpty()&&i<model.figures.size()?model.figures[i].structureNames.join(" / "):customCaption;
+    const auto captionXml=sequenceCaption("Figure S","Figure_S",++figureNumber,caption,model.figureCaptionsAbove);
+    if(model.figureCaptionsAbove)body+=captionXml;
     if(i<model.figures.size()){
       const auto& figure=model.figures[i];
 
@@ -179,14 +183,15 @@ bool DocxWriter::writeDocument(const QString& path,const si::SIDocumentModel& mo
         "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>")
         .arg(cx).arg(cy).arg(i+1).arg(xml(figure.structureNames.join(" / ")));
     }
-    const auto customCaption=model.figureCaptions.value(i);
-    const auto caption=customCaption.isEmpty()&&i<model.figures.size()?model.figures[i].structureNames.join(" / "):customCaption;
-    body+=sequenceCaption("Figure S","Figure_S",++figureNumber,caption);
+    if(!model.figureCaptionsAbove)body+=captionXml;
   }
   ;int tableNumber=0;
   auto writeTable=[&](const si::DocumentTable& table){if(table.section==si::DocumentSection::Validation||table.headers.isEmpty())return;
     const auto section=table.section;
-      body+=tableXml(table)+sequenceCaption("Table S","Table_S",++tableNumber,table.caption,section==si::DocumentSection::RelativeEnergy);
+      const auto caption=sequenceCaption("Table S","Table_S",++tableNumber,table.caption,model.tableCaptionsAbove||section==si::DocumentSection::RelativeEnergy);
+      if(model.tableCaptionsAbove)body+=caption;
+      body+=tableXml(table);
+      if(!model.tableCaptionsAbove)body+=caption;
       if(section==si::DocumentSection::RelativeEnergy){
         auto footnote=[&](const QString& text){
           return paragraph(text,false,16,"left",0,0,"Normal","<w:keepNext/><w:keepLines/>");

@@ -60,6 +60,8 @@ struct SIDocumentModel {
   int precisionOverride{};
   QStringList stageOrder;
   QHash<QString,QString> stageNames;
+  bool tableCaptionsAbove{true};
+  bool figureCaptionsAbove{false};
 
   [[nodiscard]] bool empty() const;
   [[nodiscard]] int tableCount() const;

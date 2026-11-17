@@ -23,6 +23,8 @@ struct ProjectState {
   QString geometryIndices;
   bool geometryAtomNumbers{true};
   QString captions;
+  bool tableCaptionsAbove{true};
+  bool figureCaptionsAbove{false};
   QJsonObject figureSettings;
   QJsonArray reactionStages;
   QString mechanismName;

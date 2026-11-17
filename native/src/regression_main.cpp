@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
     ok&=check(ProjectStore::save(oldProject,portable,&error),"save portable v9 project");
     QFile saved(oldProject);saved.open(QIODevice::ReadOnly);
     const auto json=QJsonDocument::fromJson(saved.readAll()).object();saved.close();
-    ok&=check(json.value("version").toInt()==10&&
+    ok&=check(json.value("version").toInt()==11&&
       json.value("structures").toArray().first().toObject().value("main_file").toString()=="sample-freq.out",
       "v9 project stores project-local Gaussian paths relatively");
     ok&=check(QFile::copy(oldProject,newProject)&&QFile::copy(original,QDir(newFolder).filePath("sample-freq.out")),

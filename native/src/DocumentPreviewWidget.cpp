@@ -27,7 +27,7 @@
 namespace {
 QString styled(const QString& value) { return si::formattedTextHtml(value); }
 
-QString tableHtml(const si::DocumentTable& table,int index,bool includeCaption=true) {
+QString tableHtml(const si::DocumentTable& table,int index,bool includeCaption=true,bool captionAbove=true) {
   const auto cellText=[](QString text){
     text.replace(QRegularExpression(QStringLiteral("[\\r\\n\\x{2028}\\x{2029}]+")),QStringLiteral(" "));
     return styled(text);
@@ -49,7 +49,8 @@ QString tableHtml(const si::DocumentTable& table,int index,bool includeCaption=t
   }
   html+=QStringLiteral("</tbody></table><p style='margin:0;line-height:12pt'>&nbsp;</p>");
   if(!includeCaption)return html;
-  html+=QStringLiteral("<p><b>Table S%1.</b> %2</p>").arg(table.documentNumber>0?table.documentNumber:index+1).arg(styled(table.caption));
+  const auto caption=QStringLiteral("<p><b>Table S%1.</b> %2</p>").arg(table.documentNumber>0?table.documentNumber:index+1).arg(styled(table.caption));
+  html=captionAbove?caption+html:html+caption;
   if(table.section==si::DocumentSection::RelativeEnergy){
     if(table.headers.contains(QStringLiteral("ΔΔE^{a}")))html+=QStringLiteral("<div><sup>a</sup> Def2-TZVPP electronic energy = sum of the two previous columns.</div>");
     if(table.headers.contains(QStringLiteral("ΔΔE_{Thermal}^{b}"))||table.headers.contains(QStringLiteral("-TΔS^{b}")))html+=QStringLiteral("<div><sup>b</sup> %1</div>").arg(table.thermochemistryNote.isEmpty()?QStringLiteral("T = 298.15 K."):table.thermochemistryNote.toHtmlEscaped());
@@ -133,16 +134,16 @@ void DocumentPreviewWidget::renderPreview() {
   copyButton_->setEnabled(selected>=0&&selected<model_.tables.size());
   copyImageButton_->setEnabled(copyButton_->isEnabled());
   QString body;
-  if(selected>=0&&selected<model_.tables.size())body=tableHtml(model_.tables[selected],selected);
+  if(selected>=0&&selected<model_.tables.size())body=tableHtml(model_.tables[selected],selected,true,model_.tableCaptionsAbove);
   else {
     const auto& model=model_;
     if(model.stageOrder.isEmpty()||!model.computationalDetails.isEmpty()||!model.referencesText.isEmpty())body=QStringLiteral("<h1>%1</h1>").arg(styled(QStringLiteral("Computational Details")));
     const auto details=si::computationalDetailsBody(model.computationalDetails);
     if(!details.isEmpty())body+=QStringLiteral("<p>%1</p>").arg(styled(details));
     if(!model.referencesText.trimmed().isEmpty())body+=QStringLiteral("<h2>References</h2><p>%1</p>").arg(styled(model.referencesText).replace('\n',"<br>"));
-    const int figureWidth=std::max(200,std::min(600,preview_->viewport()->width()-30));auto figureHtml=[&](int i){QString html;if(i<model.figures.size())html+=QStringLiteral("<p><img width='%3' height='%1' src='data:image/png;base64,%2'></p>").arg(figureWidth*model.figures[i].pixelHeight/std::max(1,model.figures[i].pixelWidth)).arg(QString::fromLatin1(model.figures[i].png.toBase64())).arg(figureWidth);const auto caption=model.figureCaptions.value(i,i<model.figures.size()?model.figures[i].structureNames.join(" / "):QString());const int number=i<model.figures.size()&&model.figures[i].documentNumber>0?model.figures[i].documentNumber:i+1;return html+QStringLiteral("<p><b>Figure S%1.</b> %2</p>").arg(number).arg(styled(caption));};
-    if(model.stageOrder.isEmpty()){for(int i=0;i<std::max(model.figures.size(),model.figureCaptions.size());++i)body+=figureHtml(i);for(int i=0;i<model.tables.size();++i)body+=tableHtml(model.tables[i],i);}
-    else {for(int i=0;i<model.figures.size();++i)if(model.figures[i].stageId.isEmpty())body+=figureHtml(i);for(const auto& id:model.stageOrder){body+=QStringLiteral("<h1>%1</h1>").arg(styled(model.stageNames.value(id)));for(int i=0;i<model.figures.size();++i)if(model.figures[i].stageId==id)body+=figureHtml(i);for(int i=0;i<model.tables.size();++i)if(model.tables[i].stageId==id)body+=tableHtml(model.tables[i],i);}for(int i=0;i<model.tables.size();++i)if(model.tables[i].stageId.isEmpty())body+=tableHtml(model.tables[i],i);}    if(!model.coordinates.isEmpty()){
+    const int figureWidth=std::max(200,std::min(600,preview_->viewport()->width()-30));auto figureHtml=[&](int i){QString html;if(i<model.figures.size())html+=QStringLiteral("<p><img width='%3' height='%1' src='data:image/png;base64,%2'></p>").arg(figureWidth*model.figures[i].pixelHeight/std::max(1,model.figures[i].pixelWidth)).arg(QString::fromLatin1(model.figures[i].png.toBase64())).arg(figureWidth);const auto caption=model.figureCaptions.value(i,i<model.figures.size()?model.figures[i].structureNames.join(" / "):QString());const int number=i<model.figures.size()&&model.figures[i].documentNumber>0?model.figures[i].documentNumber:i+1;const auto captionHtml=QStringLiteral("<p><b>Figure S%1.</b> %2</p>").arg(number).arg(styled(caption));return model.figureCaptionsAbove?captionHtml+html:html+captionHtml;};
+    if(model.stageOrder.isEmpty()){for(int i=0;i<std::max(model.figures.size(),model.figureCaptions.size());++i)body+=figureHtml(i);for(int i=0;i<model.tables.size();++i)body+=tableHtml(model.tables[i],i,true,model.tableCaptionsAbove);}
+    else {for(int i=0;i<model.figures.size();++i)if(model.figures[i].stageId.isEmpty())body+=figureHtml(i);for(const auto& id:model.stageOrder){body+=QStringLiteral("<h1>%1</h1>").arg(styled(model.stageNames.value(id)));for(int i=0;i<model.figures.size();++i)if(model.figures[i].stageId==id)body+=figureHtml(i);for(int i=0;i<model.tables.size();++i)if(model.tables[i].stageId==id)body+=tableHtml(model.tables[i],i,true,model.tableCaptionsAbove);}for(int i=0;i<model.tables.size();++i)if(model.tables[i].stageId.isEmpty())body+=tableHtml(model.tables[i],i,true,model.tableCaptionsAbove);}    if(!model.coordinates.isEmpty()){
       const int digits=model.precisionOverride>0?model.precisionOverride:6;
       body+=QStringLiteral("<h1>Cartesian Coordinates</h1>");
       for(const auto& block:model.coordinates){
@@ -168,7 +169,7 @@ void DocumentPreviewWidget::copySelectedTable() {
   const auto& table=model_.tables[index];
   QStringList textRows{table.headers.join('\t')};
   for(const auto& row:table.rows){QStringList cells;for(int col=0;col<table.headers.size();++col)cells.append(row.value(col,QStringLiteral("N/A")));textRows.append(cells.join('\t'));}
-  auto* mime=new QMimeData;mime->setHtml(htmlDocument(tableHtml(table,index)));mime->setText(textRows.join('\n'));
+  auto* mime=new QMimeData;mime->setHtml(htmlDocument(tableHtml(table,index,true,model_.tableCaptionsAbove)));mime->setText(textRows.join('\n'));
   QApplication::clipboard()->setMimeData(mime);
 }
 
