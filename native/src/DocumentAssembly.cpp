@@ -295,7 +295,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
   auto stages=reactionStages_;const auto paths=sourcePaths();QSet<QString> assigned;
   for(const auto& value:stages)for(const auto& path:value.toObject()["files"].toArray())assigned.insert(path.toString());
   QJsonArray remaining;for(const auto& path:paths)if(!assigned.contains(path))remaining.append(path);
-  if(!remaining.isEmpty())stages.append(QJsonObject{{"name",tr("미배정 구조")},{"files",remaining},{"reference",remaining.first()}});
+  if(!remaining.isEmpty())stages.append(QJsonObject{{"name",tr("미배정 구조")},{"files",remaining}});
   const auto records=energyRecords();QVector<si::DocumentTable> tables;const auto labels=structureLabels();
   auto manualEnergy=[&](const si::DocumentTable& table){return energyInputMode_->currentData().toString()=="manual"&&(table.section==si::DocumentSection::AbsoluteEnergy||table.section==si::DocumentSection::RelativeEnergy);};
   auto canSplit=[&](const si::DocumentTable& table){

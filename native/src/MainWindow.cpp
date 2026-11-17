@@ -177,6 +177,19 @@ QWidget* MainWindow::createInputPanel(){
   };
   connect(energyInputMode_,&QComboBox::currentIndexChanged,this,updateEnergyRows);
   connect(referenceMode_,&QComboBox::currentIndexChanged,this,updateEnergyRows);
+  reference_->setToolTip(tr("선택한 기준 구조를 모든 반응에 적용합니다. 반응별 기준은 각 반응 설정에서 변경할 수 있습니다."));
+  const auto applyReference=[this]{
+    const auto path=reference_->currentData().toString();
+    if(path.isEmpty())return;
+    for(int i=0;i<reactionStages_.size();++i){
+      auto stage=reactionStages_[i].toObject();
+      stage["reference"]=path;
+      reactionStages_[i]=stage;
+    }
+    scheduleDocumentRefresh();
+  };
+  connect(reference_,qOverload<int>(&QComboBox::currentIndexChanged),this,applyReference);
+  connect(reference_,qOverload<int>(&QComboBox::activated),this,applyReference);
   connect(includeAbsolute_,&QCheckBox::toggled,this,updateEnergyRows);
   updateRelativeOrder();updateEnergyRows();layout->addWidget(energySection_);
   spinSection_=section(tr("Mulliken 스핀 밀도 (Spin Density)"),content,true);auto* spin=new QFormLayout(spinSection_);spinNames_=new QTextEdit(spinSection_);spinNames_->setPlaceholderText(tr("구조명 — 비우면 구조 목록 사용 (Structure Labels)"));spinNames_->setFixedHeight(45);spin->addRow(spinNames_);spinIndices_=new QTextEdit(spinSection_);spinIndices_->setPlaceholderText(tr("원자 ID — 비우면 절댓값 상위 6개 자동 선택 (Atom IDs)"));spinIndices_->setFixedHeight(45);spin->addRow(spinIndices_);spinAtomNumbers_=new QCheckBox(tr("원자 번호 표시 (Show Atom Numbers)"),spinSection_);spinAtomNumbers_->setObjectName("spinAtomNumbers");spinAtomNumbers_->setChecked(true);spin->addRow(spinAtomNumbers_);layout->addWidget(spinSection_);

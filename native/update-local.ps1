@@ -17,8 +17,16 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
 }
 $projectPath = [System.IO.Path]::GetFullPath($ProjectRoot)
-if (Get-Process -Name "SIGenerator" -ErrorAction SilentlyContinue) {
-    throw "Close SIGenerator.exe before applying the update."
+$targetExe = Join-Path $projectPath 'SIGenerator.exe'
+foreach ($process in @(Get-Process -Name "SIGenerator" -ErrorAction SilentlyContinue)) {
+    # Separate portable copies can run independently. Never replace the runtime
+    # of a running target, or proceed when its executable path cannot be read.
+    $runningPath = $process.Path
+    if ([string]::IsNullOrWhiteSpace($runningPath) -or
+        [string]::Equals([System.IO.Path]::GetFullPath($runningPath), $targetExe,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Close SIGenerator.exe in $projectPath before applying the update."
+    }
 }
 if (-not (Test-Path -LiteralPath $projectPath -PathType Container)) {
     throw "Project directory not found: $projectPath"
