@@ -172,6 +172,11 @@ QWidget* MainWindow::createStructureWorkspace(QWidget* parent){
   clearStageMembers_->setToolTip(tr("현재 반응의 구조 배정만 모두 해제합니다. 전체 구조 보관함과 Gaussian 추출 데이터는 유지합니다."));
   actions->addWidget(clearStageMembers_);connect(clearStageMembers_,&QPushButton::clicked,this,&MainWindow::clearStageStructures);
   actions->addStretch();actions->addWidget(columns);
+  auto* atomOrder=new QPushButton(tr("원자 순서 자동 통일…"),box);
+  atomOrder->setObjectName("normalizeAtomOrdering");
+  atomOrder->setToolTip(tr("현재 목록의 구조를 기준 구조의 원자 번호에 맞춥니다. Gaussian 원본은 변경하지 않습니다."));
+  auto* atomTools=new QHBoxLayout;atomTools->addWidget(atomOrder);atomTools->addStretch();layout->addLayout(atomTools);
+  connect(atomOrder,&QPushButton::clicked,this,&MainWindow::editAtomOrdering);
   layout->insertLayout(2,actions);
   auto* order=new QHBoxLayout;for(int delta:{-1,1}){auto* button=new QPushButton(delta<0?tr("↑ 위로"):tr("↓ 아래로"),box);button->setObjectName(delta<0?"moveStructureUp":"moveStructureDown");order->addWidget(button);connect(button,&QPushButton::clicked,this,[this,delta]{moveStageStructure(delta);});}
   auto* moveTo=new QPushButton(tr("위치 지정"),box);moveTo->setObjectName("moveStructureTo");order->addWidget(moveTo);connect(files_,&QTableWidget::itemSelectionChanged,this,&MainWindow::updateStructureOrderButtons);connect(stageGrid_,&QTableWidget::currentCellChanged,this,[this]{updateStructureOrderButtons();});connect(moveTo,&QPushButton::clicked,this,[this]{if(stageGrid_->currentRow()<0)return;bool accepted=false;int target=QInputDialog::getInt(this,tr("구조 위치"),tr("이동할 위치"),stageGrid_->currentRow()+1,1,stageGrid_->rowCount(),1,&accepted);if(accepted)moveStageStructure(target-1-stageGrid_->currentRow());});layout->addLayout(order);
@@ -538,7 +543,7 @@ void MainWindow::selectStructure(){
     for(int index=0;index<files_->rowCount()&&index<pendingStructureLabels_.size();++index)if(files_->item(index,0))files_->item(index,0)->setText(pendingStructureLabels_[index]);
     pendingStructureLabels_.clear();
   }
-  const int row=files_->currentRow();if(row<0)return;auto* item=files_->item(row,0);if(!item)return;structureLabel_->setText(item->text());const auto result=parsed_.value(item->data(Qt::UserRole).toString());if(result)moleculeView_->setMolecule(result->finalGeometry,result->spinDensities,result->spinBasisLevel,result->spinFallback);scheduleDocumentRefresh();
+  const int row=files_->currentRow();if(row<0)return;auto* item=files_->item(row,0);if(!item)return;structureLabel_->setText(item->text());const auto result=orderedGaussian(item->data(Qt::UserRole).toString());if(result)moleculeView_->setMolecule(result->finalGeometry,result->spinDensities,result->spinBasisLevel,result->spinFallback);scheduleDocumentRefresh();
 }
 void MainWindow::renameSelected(){const int row=files_->currentRow();if(row<0)return;QString name=structureLabel_->text().trimmed();if(name.isEmpty()){bool accepted=false;name=QInputDialog::getText(this,tr("구조 이름 (Structure Label)"),tr("구조 이름 (Structure Label):"),QLineEdit::Normal,files_->item(row,0)->text(),&accepted).trimmed();if(!accepted||name.isEmpty())return;}files_->item(row,0)->setText(name);manualLabelsEdited_=true;labelInputAtManualEdit_=fileNames_->toPlainText();labelBaseAtManualEdit_=baseDirectory_->text();syncReferenceOptions();scheduleDocumentRefresh();}
 void MainWindow::removeSelected(){const int row=files_->currentRow();if(row<0)return;const auto path=files_->item(row,0)->data(Qt::UserRole).toString();for(int i=0;i<reactionStages_.size();++i){auto stage=reactionStages_[i].toObject();auto members=stage["files"].toArray();for(int j=members.size()-1;j>=0;--j)if(members[j].toString()==path)members.removeAt(j);stage["files"]=members;if(stage["reference"].toString()==path)stage["reference"]=members.isEmpty()?QString():members.first().toString();reactionStages_[i]=stage;}files_->removeRow(row);parsed_.remove(path);pairedPaths_.remove(path);manualPairedPaths_.remove(path);restoredSpeLinks_.remove(path);if(files_->rowCount())files_->selectRow(std::min(row,files_->rowCount()-1));else moleculeView_->clearMolecule();syncReferenceOptions();scheduleDocumentRefresh();}

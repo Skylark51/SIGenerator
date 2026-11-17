@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     portable.siPath=QDir(oldFolder).filePath("SI.docx");
     portable.pairedSnapshotPaths.insert(original,paired);
     portable.manualPairedPaths.insert(original,paired);
+    portable.atomOrderings.insert(original,QJsonObject{{"geometry_hash","abc"},{"indices",QJsonArray{2,0,1}}});
     portable.gaussianSnapshots.insert(original,QJsonObject{{"test",true}});
     portable.reactionStages={QJsonObject{{"name","Stage 1"},{"files",QJsonArray{original}},{"reference",original},
       {"structure_relative_values",QJsonObject{{original,QJsonObject{{"E_{Total}","0.00"}}}}}}};
@@ -81,12 +82,13 @@ int main(int argc, char** argv) {
     ok&=check(ProjectStore::save(oldProject,portable,&error),"save portable v9 project");
     QFile saved(oldProject);saved.open(QIODevice::ReadOnly);
     const auto json=QJsonDocument::fromJson(saved.readAll()).object();saved.close();
-    ok&=check(json.value("version").toInt()==9&&
+    ok&=check(json.value("version").toInt()==10&&
       json.value("structures").toArray().first().toObject().value("main_file").toString()=="sample-freq.out",
       "v9 project stores project-local Gaussian paths relatively");
     ok&=check(QFile::copy(oldProject,newProject)&&QFile::copy(original,QDir(newFolder).filePath("sample-freq.out")),
       "copy portable project to a new folder");
     ProjectState relocated;
+    ok&=check(ProjectStore::load(newProject,&relocated,&error)&&relocated.atomOrderings.contains(QDir(newFolder).filePath("sample-freq.out")),"atom ordering paths relocate with portable project");
     ok&=check(ProjectStore::load(newProject,&relocated,&error)&&
       relocated.files.value(0)==QDir(newFolder).filePath("sample-freq.out")&&
       relocated.baseDirectory==newFolder&&
@@ -356,6 +358,35 @@ int main(int argc, char** argv) {
     QFile legacy(projectPath);if(!legacy.open(QIODevice::WriteOnly|QIODevice::Truncate))return 1;
     legacy.write(QJsonDocument(QJsonObject{{"version",3},{"reference_settings",QJsonObject{{"energy_basis",QString::number(oldBasis)}}}}).toJson());legacy.close();
     ok&=check(ProjectStore::load(projectPath,&restored,&error)&&restored.energyBasis==QString::number(oldBasis==0?5:oldBasis),"v3 energy basis compatibility");
+  }
+  {
+    const std::vector<si::Atom> target{{6,"C",{0,0,0}},{6,"C",{1.45,0.2,0}},{8,"O",{2.2,1.1,0.3}},{1,"H",{-0.3,0.9,0.1}},{1,"H",{1.5,-0.8,0.4}},{7,"N",{-1.1,-0.4,0.8}}};
+    const std::vector<int> shuffle{4,2,5,1,3,0};
+    si::GaussianResult sample;sample.scfEnergy=-123.45;
+    for(size_t i=0;i<shuffle.size();++i){auto atom=target[shuffle[i]];const auto xyz=atom.xyz;atom.xyz={-xyz[1]+4,xyz[0]-7,xyz[2]+2};sample.finalGeometry.push_back(atom);sample.spinDensities.push_back({static_cast<int>(i+1),atom.symbol,0.01*shuffle[i],0.1*shuffle[i]});}
+    const auto matched=si::matchAtomOrdering(target,sample.finalGeometry,0.02);
+    ok&=check(matched.accepted&&matched.rmsd<1e-8,"atom mapping handles shuffled repeated elements with rigid rotation and translation");
+    const auto raw=sample;
+    ok&=check(si::applyAtomOrdering(sample,matched.sourceIndices),"atom permutation applied");
+    for(size_t i=0;i<target.size();++i){
+      const auto xyz=target[i].xyz;
+      ok&=check(sample.finalGeometry[i].symbol==target[i].symbol&&std::abs(sample.finalGeometry[i].xyz[0]-(-xyz[1]+4))<1e-10&&sample.spinDensities[i].atomIndex==static_cast<int>(i+1)&&std::abs(sample.spinDensities[i].spin-0.1*i)<1e-10,"coordinates and spin density retain physical atom identity");
+    }
+    ok&=check(sample.scfEnergy==raw.scfEnergy,"atom ordering never changes energies");
+    auto duplicate=matched.sourceIndices;duplicate[0]=duplicate[1];const auto unchanged=sample.finalGeometry;
+    ok&=check(!si::applyAtomOrdering(sample,duplicate)&&sample.finalGeometry[0].xyz==unchanged[0].xyz,"invalid non-bijective mapping is rejected atomically");
+    auto wrong=target;wrong[0].atomicNumber=8;
+    ok&=check(!si::matchAtomOrdering(target,wrong).accepted,"different element composition is rejected");
+    wrong=target;wrong.pop_back();ok&=check(!si::matchAtomOrdering(target,wrong).accepted,"different atom counts are rejected");
+    wrong=target;wrong[0].xyz[0]=20;ok&=check(!si::matchAtomOrdering(target,wrong,0.1).accepted,"large conformational mismatch is skipped");
+    const auto already=si::matchAtomOrdering(target,target);
+    ok&=check(already.accepted&&already.sourceIndices==std::vector<int>({0,1,2,3,4,5}),"already ordered structures preserve numbering");
+    auto near=target;near[2].xyz[0]+=0.03;
+    ok&=check(si::matchAtomOrdering(target,near,0.1).accepted,"small geometry changes are supported");
+    const std::vector<int> sameElements{1,0,2,4,3,5};std::vector<si::Atom> rearranged;
+    for(int i:sameElements)rearranged.push_back(target[i]);
+    const auto sameMatch=si::matchAtomOrdering(target,rearranged,0.02);
+    ok&=check(sameMatch.accepted&&sameMatch.sourceIndices==sameElements,"same element sequence does not hide swapped carbons and hydrogens");
   }
   std::cout << (ok ? "native Gaussian regression: PASS\n" : "native Gaussian regression: FAIL\n");
   return ok ? 0 : 1;

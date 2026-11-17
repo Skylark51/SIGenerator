@@ -56,6 +56,7 @@ qt_add_library(si_editor STATIC
   src/MainWindow.cpp src/MainWindow.hpp
   src/GaussianImport.cpp
   src/ReactionWorkspace.cpp
+  src/AtomOrderingWorkspace.cpp
   src/ProjectWorkspace.cpp
   src/ProjectHistoryDialog.cpp
   src/ProjectManagerDialog.cpp src/ProjectManagerDialog.hpp

@@ -754,6 +754,60 @@ struct Phase1Smoke {
     QTest::qWait(100);
     return ok;
   }
+  static bool atomOrderingWorkflow(){
+    QTemporaryDir temp;MainWindow window;bool ok=true;
+    const std::vector<si::Atom> reference{{6,"C",{0,0,0}},{6,"C",{1.45,0.2,0}},{8,"O",{2.2,1.1,0.3}},{1,"H",{-0.3,0.9,0.1}},{1,"H",{1.5,-0.8,0.4}},{7,"N",{-1.1,-0.4,0.8}}};
+    const QStringList paths{temp.filePath("reference.log"),temp.filePath("shuffled.log"),temp.filePath("different.log")};
+    auto write=[&](const QString& path,const std::vector<int>& order,bool rotate){
+      QString text=" #p b3lyp/def2svp opt freq\n\n Charge = 0 Multiplicity = 1\n Standard orientation:\n ---------------------\n Center Atomic Atomic Coordinates (Angstroms)\n Number Number Type X Y Z\n ---------------------\n";
+      for(size_t i=0;i<order.size();++i){const auto& atom=reference[order[i]];auto xyz=atom.xyz;if(rotate)xyz={-xyz[1]+4,xyz[0]-7,xyz[2]+2};text+=QString(" %1 %2 0 %3 %4 %5\n").arg(i+1).arg(atom.atomicNumber).arg(xyz[0],0,'f',8).arg(xyz[1],0,'f',8).arg(xyz[2],0,'f',8);}
+      text+=" ---------------------\n SCF Done: E(RB3LYP) = -100.0 A.U. after 10 cycles\n Mulliken charges and spin densities:\n 1\n";
+      for(size_t i=0;i<order.size();++i)text+=QString(" %1 %2 0.0 %3\n").arg(i+1).arg(QString::fromStdString(reference[order[i]].symbol)).arg(0.1*order[i],0,'f',6);
+      text+="\n Normal termination of Gaussian 16\n";QFile file(path);if(!file.open(QIODevice::WriteOnly))return false;file.write(text.toUtf8());return true;
+    };
+    ok&=write(paths[0],{0,1,2,3,4,5},false)&&write(paths[1],{4,2,5,1,3,0},true)&&write(paths[2],{0,1,2,3,4},false);
+    window.parsePaths(paths,false,false);if(!waitForImport(window))return false;window.chooseStageScope(-2);
+    const auto raw=window.parsed_.value(paths[1]);
+    window.spinIndices_->setPlainText("1\n1\n1");
+    window.figureSettings_=QJsonObject{{"retained_hydrogens",QJsonObject{{paths[1],1}}}};
+    auto operate=[&](const QString& action){
+      QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("atomOrderingDialog");if(!dialog){ok=false;return;}
+        if(action=="restore"){dialog->findChild<QPushButton*>("restoreAtomOrdering")->click();return;}
+        dialog->findChild<QPushButton*>("previewAtomOrdering")->click();
+        auto* results=dialog->findChild<QTableWidget*>("atomOrderingResults");
+        const int offset=results->rowCount()==3?1:0;
+        ok&=check(results->rowCount()==window.stageGrid_->rowCount()&&results->item(offset,1)->text()==QString::fromUtf8("통일 가능")&&results->item(offset+1,1)->text().startsWith(QString::fromUtf8("건너뜀")),"atom ordering preview distinguishes reordered and incompatible structures");
+        if(qEnvironmentVariableIsSet("SI_NAV_SAMPLE_DIR"))dialog->grab().save(qEnvironmentVariable("SI_NAV_SAMPLE_DIR")+"/atom-ordering.png");
+        if(action=="apply")dialog->findChild<QPushButton*>("applyAtomOrdering")->click();else dialog->reject();
+      });
+      window.findChild<QPushButton*>("normalizeAtomOrdering")->click();
+    };
+    operate("cancel");ok&=check(window.atomOrderings_.isEmpty(),"canceling atom ordering leaves project unchanged");
+    window.reactionStages_={QJsonObject{{"id","ordering-stage"},{"name","Ordering stage"},{"files",QJsonArray{paths[1],paths[2]}},{"reference",paths[0]}}};window.chooseStageScope(0);
+    operate("apply");
+    const auto reordered=window.orderedGaussian(paths[1]);
+    ok&=check(window.spinIndices_->toPlainText()=="1\n5\n1"&&window.figureSettings_["retained_hydrogens"].toObject()[paths[1]].toInt()==5,"per-structure spin selection and retained hydrogen follow physical atoms");
+    ok&=check(window.atomOrderings_.size()==1&&window.parsed_.value(paths[1])==raw&&reordered->finalGeometry[0].atomicNumber==6&&reordered->spinDensities[2].atomIndex==3&&std::abs(reordered->spinDensities[2].spin-0.2)<1e-8,"ordering is a non-destructive coordinate and spin projection");
+    const auto model=window.buildDocumentModel();
+    ok&=check(model.coordinates.size()==3&&model.coordinates[1].atoms[0].xyz==reordered->finalGeometry[0].xyz,"document and Figure coordinates use unified atom order");
+    QString xyzError;const auto xyzPath=temp.filePath("ordered.xyz");
+    ok&=check(si::XyzWriter::write(xyzPath,model,&xyzError),"unified coordinates export to XYZ");
+    QFile xyzFile(xyzPath);if(!xyzFile.open(QIODevice::ReadOnly))return false;const auto xyzText=xyzFile.readAll();
+    const auto xyzLines=QString::fromUtf8(xyzText).split('\n');int frame=-1;
+    for(int i=0;i<xyzLines.size();++i)if(xyzLines[i].contains("shuffled")){frame=i;break;}
+    const auto firstAtom=frame>=0?xyzLines.value(frame+1).simplified().split(' '):QStringList{};
+    ok&=check(firstAtom.size()==4&&firstAtom[0]=="C"&&firstAtom[1].toDouble()==4&&firstAtom[2].toDouble()==-7&&firstAtom[3].toDouble()==2,"XYZ contains reference atom order with original coordinate values");
+    const auto project=temp.filePath("ordering.si_project.json");
+    ok&=check(window.saveProjectToPath(project),"atom order project saves");
+    {MainWindow live;ok&=check(live.loadProjectPath(project)&&waitForImport(live)&&live.orderedGaussian(paths[1])->finalGeometry[0].xyz==reordered->finalGeometry[0].xyz,"reparsing original files retains saved atom mapping");}
+    for(const auto& path:paths)QFile::remove(path);
+    {MainWindow offline;ok&=check(offline.loadProjectPath(project)&&waitForImport(offline)&&offline.orderedGaussian(paths[1])->finalGeometry[0].xyz==reordered->finalGeometry[0].xyz&&offline.parsed_.value(paths[1])->finalGeometry[0].xyz==raw->finalGeometry[0].xyz,"offline snapshots stay raw and apply mapping exactly once");}
+    auto changed=std::make_shared<si::GaussianResult>(*raw);changed->finalGeometry[0].xyz[0]+=0.01;window.parsed_[paths[1]]=changed;
+    ok&=check(window.orderedGaussian(paths[1])==changed,"changed source coordinates invalidate saved mapping");window.parsed_[paths[1]]=raw;
+    operate("restore");ok&=check(window.atomOrderings_.isEmpty()&&window.orderedGaussian(paths[1])==raw,"original order can be restored");
+    ok&=check(window.spinIndices_->toPlainText()=="1\n1\n1"&&window.figureSettings_["retained_hydrogens"].toObject()[paths[1]].toInt()==1,"restoring raw order restores physical atom selections");
+    return ok;
+  }
   static bool automaticGeometry(){
     MainWindow window;QTemporaryDir folder;bool ok=true;
     QStringList paths;
@@ -1611,6 +1665,7 @@ int main(int argc,char** argv){
   ok&=Phase1Smoke::namedAndTsImports(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::responsiveImport(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::automaticGeometry();
+  ok&=Phase1Smoke::atomOrderingWorkflow();
   ok&=figureWorkflowSmoke();
   ok&=tableImageSmoke();
   ok&=singleLineTableSmoke();

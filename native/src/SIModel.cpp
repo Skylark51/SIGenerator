@@ -57,6 +57,96 @@ std::vector<Vec> rigidFit(const std::vector<Vec>& source,const std::vector<Vec>&
   return aligned;
 }
 }
+AtomOrdering matchAtomOrdering(const std::vector<Atom>& reference,const std::vector<Atom>& source,double maximumRmsd){
+  AtomOrdering result;
+  const auto n=reference.size();
+  if(!n||n!=source.size()){result.reason="Atom counts differ or coordinates are missing";return result;}
+  if(!std::isfinite(maximumRmsd)||maximumRmsd<=0){result.reason="Invalid RMSD limit";return result;}
+  std::vector<int> elementsA,elementsB;
+  for(const auto* geometry:{&reference,&source})for(const auto& a:*geometry){
+    if(a.atomicNumber<=0||!std::all_of(a.xyz.begin(),a.xyz.end(),[](double v){return std::isfinite(v);})){result.reason="Invalid coordinates or element";return result;}
+  }
+  for(const auto& a:reference)elementsA.push_back(a.atomicNumber);
+  for(const auto& a:source)elementsB.push_back(a.atomicNumber);
+  std::sort(elementsA.begin(),elementsA.end());std::sort(elementsB.begin(),elementsB.end());
+  if(elementsA!=elementsB){result.reason="Element compositions differ";return result;}
+  // Rotation-invariant fingerprints: distances grouped by element, then sorted.
+  // Assignment is bijective; repeated elements are never matched independently.
+  auto fingerprints=[&](const std::vector<Atom>& g){
+    std::vector<std::vector<double>> signatures(n);
+    auto elements=elementsA;elements.erase(std::unique(elements.begin(),elements.end()),elements.end());
+    for(size_t i=0;i<n;++i)for(int z:elements){
+      std::vector<double> distances;
+      for(size_t j=0;j<n;++j)if(g[j].atomicNumber==z)distances.push_back(norm(sub(g[i].xyz,g[j].xyz)));
+      std::sort(distances.begin(),distances.end());
+      signatures[i].insert(signatures[i].end(),distances.begin(),distances.end());
+    }
+    return signatures;
+  };
+  const auto fa=fingerprints(reference),fb=fingerprints(source);
+  std::vector<std::vector<double>> fingerprintCost(n,std::vector<double>(n));
+  for(size_t i=0;i<n;++i)for(size_t j=0;j<n;++j){
+    double cost=0;for(size_t k=0;k<n;++k){const double d=fa[i][k]-fb[j][k];cost+=d*d;}
+    fingerprintCost[i][j]=reference[i].atomicNumber==source[j].atomicNumber?cost/n:1e12;
+  }
+  // Hungarian minimum-cost assignment, O(n^3), deterministic on equal costs.
+  auto assign=[&](const std::vector<std::vector<double>>& cost){
+    std::vector<double> u(n+1),v(n+1);std::vector<int> p(n+1),way(n+1);
+    for(size_t i=1;i<=n;++i){
+      p[0]=static_cast<int>(i);int j0=0;std::vector<double> minimum(n+1,1e30);std::vector<bool> used(n+1);
+      do{
+        used[j0]=true;const int i0=p[j0];int j1=0;double delta=1e30;
+        for(size_t j=1;j<=n;++j)if(!used[j]){
+          const double current=cost[i0-1][j-1]-u[i0]-v[j];
+          if(current<minimum[j]){minimum[j]=current;way[j]=j0;}
+          if(minimum[j]<delta){delta=minimum[j];j1=static_cast<int>(j);}
+        }
+        for(size_t j=0;j<=n;++j){if(used[j]){u[p[j]]+=delta;v[j]-=delta;}else minimum[j]-=delta;}
+        j0=j1;
+      }while(p[j0]);
+      do{const int j1=way[j0];p[j0]=p[j1];j0=j1;}while(j0);
+    }
+    std::vector<int> mapping(n);for(size_t j=1;j<=n;++j)mapping[p[j]-1]=static_cast<int>(j-1);return mapping;
+  };
+  const auto target=centered(reference),points=centered(source);
+  auto fitted=[&](const std::vector<int>& mapping){std::vector<Vec> ordered;for(int i:mapping)ordered.push_back(points[i]);return rigidFit(ordered,target);};
+  auto score=[&](const std::vector<Vec>& aligned){double total=0;for(size_t i=0;i<n;++i){auto d=sub(aligned[i],target[i]);total+=dot(d,d);}return std::sqrt(total/n);};
+  auto best=assign(fingerprintCost);double bestRmsd=score(fitted(best));
+  std::vector<std::vector<int>> starts{best};
+  bool sameElements=true;std::vector<int> identity(n);
+  for(size_t i=0;i<n;++i){identity[i]=static_cast<int>(i);sameElements&=reference[i].atomicNumber==source[i].atomicNumber;}
+  if(sameElements)starts.push_back(identity);
+  for(auto mapping:starts)for(int iteration=0;iteration<20;++iteration){
+    const auto aligned=fitted(mapping);const double rmsd=score(aligned);
+    if(rmsd<bestRmsd){bestRmsd=rmsd;best=mapping;}
+    // Recover fitted positions in source order for the next assignment.
+    std::vector<Vec> sourceAligned(n);for(size_t i=0;i<n;++i)sourceAligned[mapping[i]]=aligned[i];
+    auto cost=fingerprintCost;
+    for(size_t i=0;i<n;++i)for(size_t j=0;j<n;++j)if(cost[i][j]<1e12){auto d=sub(target[i],sourceAligned[j]);cost[i][j]=dot(d,d)+0.05*cost[i][j];}
+    auto next=assign(cost);if(next==mapping)break;mapping=std::move(next);
+  }
+  // Preserve existing numbering if a rearrangement offers negligible benefit,
+  // including exchanges of geometrically equivalent symmetric atoms.
+  if(sameElements){const auto unchanged=score(fitted(identity));if(unchanged<=std::min(maximumRmsd,bestRmsd+0.01)){best=identity;bestRmsd=unchanged;}}
+  result.rmsd=bestRmsd;
+  if(!std::isfinite(bestRmsd)||bestRmsd>maximumRmsd){result.reason="RMSD exceeds limit; correspondence requires review";return result;}
+  const auto aligned=fitted(best);
+  for(size_t i=0;i<n;++i)if(norm(sub(aligned[i],target[i]))>std::max(0.3,2.5*maximumRmsd)){
+    result.reason="An individual atom deviates too far; correspondence requires review";return result;
+  }
+  result.sourceIndices=std::move(best);result.accepted=true;return result;
+}
+
+bool applyAtomOrdering(GaussianResult& result,const std::vector<int>& indices){
+  const auto n=result.finalGeometry.size();if(indices.size()!=n)return false;
+  std::vector<int> inverse(n,-1);std::vector<Atom> geometry;geometry.reserve(n);
+  for(size_t i=0;i<n;++i){const int old=indices[i];if(old<0||static_cast<size_t>(old)>=n||inverse[old]!=-1)return false;inverse[old]=static_cast<int>(i);geometry.push_back(result.finalGeometry[old]);}
+  for(const auto& spin:result.spinDensities)if(spin.atomIndex<1||static_cast<size_t>(spin.atomIndex)>n)return false;
+  for(auto& spin:result.spinDensities)spin.atomIndex=inverse[spin.atomIndex-1]+1;
+  std::sort(result.spinDensities.begin(),result.spinDensities.end(),[](const auto& a,const auto& b){return a.atomIndex<b.atomIndex;});
+  result.finalGeometry=std::move(geometry);return true;
+}
+
 SpeMatch validateSpe(const GaussianResult& primary,const GaussianResult& spe){
   if(!primary.success||!spe.success||!spe.scfEnergy)return SpeMatch::MissingData;
   if(primary.charge&&spe.charge&&primary.charge!=spe.charge)return SpeMatch::Charge;
