@@ -40,7 +40,7 @@ void populateManualGeometry(si::DocumentTable& table,const std::vector<si::Energ
       expected.push_back(source!=records.end()?source->frequency.finalGeometry[id-1].atomicNumber:-1);
     }
     elements.push_back(std::move(expected));
-    table.headers.append(labels.join('-')+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));
+    table.headers.append(labels.join(QStringLiteral(" – "))+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));
   }
   for(size_t i=0;i<records.size();++i){
     const auto& record=records[i];const auto& geometry=record.frequency.finalGeometry;
@@ -68,7 +68,10 @@ QStringList MainWindow::preflightErrors() const{
   if(parsing_)errors.append("Gaussian parsing is still in progress.");
   for(int row=0;row<files_->rowCount();++row)if(const auto* status=files_->item(row,6))
     for(const auto& message:status->data(Qt::UserRole).toStringList())errors.append(files_->item(row,0)->text()+": "+message);
-  if(energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="manual_numeric"){
+  QSet<QString> assignedReferencePaths;bool usesGlobalReference=reactionStages_.isEmpty();
+  for(const auto& value:reactionStages_){const auto stage=value.toObject();if(stage.value("reference_mode").toString("inherit")=="inherit")usesGlobalReference=true;for(const auto& member:stage.value("files").toArray())assignedReferencePaths.insert(member.toString());}
+  for(const auto& path:currentPaths)if(!assignedReferencePaths.contains(path))usesGlobalReference=true;
+  if(usesGlobalReference&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="manual_numeric"){
     bool ok=false;const double value=manualReference_->text().toDouble(&ok);
     if(!ok||!std::isfinite(value))errors.append("Manual reference must be a finite energy in Hartree.");
   }
@@ -91,6 +94,10 @@ QStringList MainWindow::preflightErrors() const{
   for(int index=0;index<reactionStages_.size();++index){
     const auto stage=reactionStages_[index].toObject();
     if(!stage.value("relative").toBool(true))continue;
+    if(energyInputMode_->currentData().toString()=="automatic"&&stage.value("reference_mode").toString()=="manual_numeric"){
+      bool valid=false;const double ref=stage.value("manual_reference").toString().toDouble(&valid);
+      if(!valid||!std::isfinite(ref))errors.append(tr("반응 '%1': 수동 기준값은 유효한 Hartree 숫자여야 합니다.").arg(stage["name"].toString()));
+    }
     if(stage.value("structure_relative_enabled").toBool(false)){
       QStringList headers{QString(),"E_{Total}","ΔZ_{0}","ΔΔE_{Thermal}^{b}","-TΔS^{b}"};
       if(includeDispersion_->isChecked())headers.append("Δ_{Dispersion}");
@@ -159,6 +166,7 @@ bool MainWindow::absoluteEnergyRequested() const{
 si::SIDocumentModel MainWindow::buildDocumentModel(){
   si::SIDocumentModel model;model.title=documentTitle_->text().trimmed().isEmpty()?QStringLiteral("Supporting Information"):documentTitle_->text().trimmed();model.mechanismName=mechanismName_->text().trimmed();model.figureCaptions=lines(captions_->toPlainText());model.precisionOverride=0;const int precision=0;const bool absoluteRequested=absoluteEnergyRequested();const auto labels=structureLabels();const auto paths=sourcePaths();
   model.manuscriptTitle=manuscriptTitle_->text();model.authors=authors_->text();model.affiliations=affiliations_->text();model.correspondingEmail=correspondingEmail_->text();model.referencesText=referencesText_->toPlainText();
+  model.tableCaptionsAbove=tableCaptionPosition_->currentData().toBool();model.figureCaptionsAbove=figureCaptionPosition_->currentData().toBool();
   auto records=energyRecords();geometryAutoInfo_->clear();
   const auto detailsBasis=energyInputMode_->currentData().toString()==QStringLiteral("automatic")&&referenceMode_->currentData().toString()==QStringLiteral("single")
     ?si::EnergyBasis::LegacyComposite:static_cast<si::EnergyBasis>(energyBasis_->currentData().toInt());
@@ -216,7 +224,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       }
       model.tables.append(table);
     }
-    if(referenceMode_->currentData().toString()!=QStringLiteral("manual_relative_only")){
+    if(referenceMode_->currentData().toString()!=QStringLiteral("manual_relative_only")||!reactionStages_.isEmpty()){
       size_t refIndex=0;
       const auto requested=QFileInfo(reference_->currentData().toString()).absoluteFilePath();
       for(size_t i=0;i<records.size();++i)
@@ -317,7 +325,7 @@ si::SIDocumentModel MainWindow::buildDocumentModel(){
       const auto names=lines(geometryNames_->toPlainText());
       if(!automaticGeometry)populateManualGeometry(table,records,geometryGroups,geometryAtomNumbers_->isChecked(),precision,names);
       else {
-        for(const auto& group:geometryGroups){QStringList atoms;for(int id:group)atoms.append(atomLabel(*geometryLabels,id,geometryAtomNumbers_->isChecked()));table.headers.append(atoms.join('-')+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));}
+        for(const auto& group:geometryGroups){QStringList atoms;for(int id:group)atoms.append(atomLabel(*geometryLabels,id,geometryAtomNumbers_->isChecked()));table.headers.append(atoms.join(QStringLiteral(" – "))+QStringLiteral(" (%1)").arg(group.size()==2?QStringLiteral("Å"):QStringLiteral("°")));}
         for(size_t index=0;index<records.size();++index){
           const auto& record=records[index];QStringList row{names.size()==static_cast<int>(records.size())?names[static_cast<int>(index)]:QString::fromStdString(record.name)};
           for(const auto& group:geometryGroups){
@@ -348,7 +356,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
   for(const auto& value:stages)for(const auto& path:value.toObject()["files"].toArray())assigned.insert(path.toString());
   QJsonArray remaining;for(const auto& path:paths)if(!assigned.contains(path))remaining.append(path);
   if(!remaining.isEmpty())stages.append(QJsonObject{{"name",tr("미배정 구조")},{"files",remaining}});
-  const auto records=energyRecords();QVector<si::DocumentTable> tables;const auto labels=structureLabels();
+  auto records=energyRecords();for(auto& record:records)(void)si::selectEnergy(record,static_cast<si::EnergyBasis>(energyBasis_->currentData().toInt()));QVector<si::DocumentTable> tables;const auto labels=structureLabels();
   auto manualEnergy=[&](const si::DocumentTable& table){return energyInputMode_->currentData().toString()=="manual"&&(table.section==si::DocumentSection::AbsoluteEnergy||table.section==si::DocumentSection::RelativeEnergy);};
   auto canSplit=[&](const si::DocumentTable& table){
     if(table.section==si::DocumentSection::Other||table.section==si::DocumentSection::Validation)return false;
@@ -423,12 +431,24 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
         }
         tables.append(split);continue;
       }
-      if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&referenceMode_->currentData().toString()=="single"&&!selected.empty()){
-        const int ref=paths.indexOf(stageReferencePath(stage,paths));
-        const auto& reference=ref>=0&&ref<static_cast<int>(records.size())?records[ref]:selected.front();
-        const auto relative=si::legacyRelativeEnergies(selected,reference,includeDispersion_->isChecked(),includeComplexation_->isChecked());
-        split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
-        for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}
+      const auto localMode=stage.value("reference_mode").toString("inherit");
+      const auto mode=localMode=="inherit"?referenceMode_->currentData().toString():localMode;
+      if(key=="relative"&&mode=="manual_relative_only"&&energyInputMode_->currentData().toString()=="automatic")continue;
+      if(key=="relative"&&energyInputMode_->currentData().toString()=="automatic"&&!selected.empty()){
+        if(mode=="manual_numeric"){
+          bool valid=false;const double ref=(localMode=="inherit"?manualReference_->text():stage.value("manual_reference").toString()).toDouble(&valid);
+          split.thermochemistryNote=tr("Thermal components are not evaluated for a manually entered reference.");
+          split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
+          for(const auto& record:selected){QStringList row{QString::fromStdString(record.name)};
+            for(int col:columns)row.append(valid&&std::isfinite(ref)&&record.selectedHartree?number(col==0||col==2||col==8?(*record.selectedHartree-ref)*si::HartreeToKcal:0.0,2,0):QStringLiteral("N/A"));split.rows.append(row);}
+        }else{
+          const int ref=paths.indexOf(stageReferencePath(stage,paths));
+          const auto& reference=ref>=0&&ref<static_cast<int>(records.size())?records[ref]:selected.front();
+          split.thermochemistryNote=si::relativeTemperatureNote();
+          const auto relative=si::legacyRelativeEnergies(selected,reference,includeDispersion_->isChecked(),includeComplexation_->isChecked());
+          split.rows.clear();const auto columns=si::relativeEnergyColumns(includeDispersion_->isChecked(),includeComplexation_->isChecked());
+          for(const auto& entry:relative){QStringList row{QString::fromStdString(entry.name)};for(int col:columns){auto text=number(entry.kcalTerms[col],2,model.precisionOverride);if(entry.kcalTerms[col]&&(((col==1||col==3||col==4||col==5)&&*entry.kcalTerms[col]>0)||((col==6||col==7)&&*entry.kcalTerms[col]>=0))&&!text.startsWith('-'))text.prepend('+');row.append(text);}split.rows.append(row);}
+        }
       }
       if(key=="relative"&&stage.value("structure_relative_enabled").toBool(false)){
         split.hasManualRelativeValues=!stage.value("structure_relative_values").toObject().isEmpty();
@@ -457,7 +477,7 @@ void MainWindow::applyReactionStages(si::SIDocumentModel& model){
       geometryTable.stageId=id;
       const auto& labelSource=geometryRecords[suggestion.recordIndices.front()].frequency;
       for(const auto& pair:suggestion.distances)
-        geometryTable.headers.append(atomLabel(labelSource,pair[0],geometryAtomNumbers_->isChecked())+"-"+atomLabel(labelSource,pair[1],geometryAtomNumbers_->isChecked())+QStringLiteral(" (Å)"));
+        geometryTable.headers.append(atomLabel(labelSource,pair[0],geometryAtomNumbers_->isChecked())+QStringLiteral(" – ")+atomLabel(labelSource,pair[1],geometryAtomNumbers_->isChecked())+QStringLiteral(" (Å)"));
       QSet<size_t> compatible;
       for(const auto index:suggestion.recordIndices)compatible.insert(index);
       const auto manuallyNamed=lines(geometryNames_->toPlainText());

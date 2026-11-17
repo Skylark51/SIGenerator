@@ -82,7 +82,7 @@ int main(int argc,char** argv){
   check(document.contains("Phase 1 &amp; manuscript")&&document.contains("A. Author")&&document.contains("Test Laboratory")&&document.contains("author@example.org"),"cover metadata");
   check(document.contains("Verified computational details")&&!document.contains("Stationary-point validation")&&document.contains("Coordinates")&&document.contains("Reference 1"),"legacy document content excludes validation table");
   check(!document.contains(">Contents<")&&!document.contains("List of Tables")&&document.indexOf("Computational Details")<document.indexOf("Reference 1")&&document.indexOf("Reference 1")<document.indexOf("w:type=\"page\""),"computational details and SI references on the first section");
-  check(document.indexOf("Reaction profile")<document.indexOf("<w:tbl>")&&document.indexOf("</w:tbl>")<document.indexOf("Markup")&&document.indexOf(">References<")<document.indexOf(">Cartesian Coordinates<"),"legacy figures before tables and captions below tables");
+  check(document.indexOf("Reaction profile")<document.indexOf("<w:tbl>")&&document.indexOf("Markup")<document.indexOf("<w:tbl>")&&document.indexOf(">References<")<document.indexOf(">Cartesian Coordinates<"),"figures before tables and table captions above tables");
   check(document.contains("w:num=\"3\"")&&document.contains("0.957200")&&document.contains("w:sz w:val=\"12\""),"legacy three-column coordinates and six decimal places");
   check(document.contains("<w:tblHeader/>")&&document.contains("<w:cantSplit/>")&&document.contains("<w:vAlign w:val=\"center\"/>")&&!document.contains("<w:shd"),"table formatting");
   check(document.contains("<w:tblLayout w:type=\"fixed\"/>")&&document.contains("<w:gridCol w:w=\"")&&document.count("<w:noWrap/>")<document.count("<w:tc>"),"fixed page-width grid and selective numeric cell no-wrap");
@@ -90,6 +90,19 @@ int main(int argc,char** argv){
   const auto tableBody=document.mid(tableStart,document.indexOf("</w:tbl>",tableStart)-tableStart);
   check(tableBody.count("<w:jc w:val=\"center\"/>")==tableBody.count("<w:tc>")+1,
         "all Word table cells, including structure names, are centered");
+  {
+    si::SIDocumentModel positions;positions.figureCaptions={"Position figure"};
+    positions.figures.append({QByteArray::fromBase64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="),{"molecule"},1,1});
+    positions.tables.append({si::DocumentSection::SelectedGeometry,"Position table",{"Structure","C(1) – H(2) (Å)"},{{"A","1.090"}},{}});
+    for(bool overridden:{false,true}){
+      positions.tableCaptionsAbove=!overridden;positions.figureCaptionsAbove=overridden;
+      const auto path=QDir::current().filePath(overridden?"caption-position-override.docx":"caption-position-default.docx");
+      check(DocxWriter::writeDocument(path,positions,&error),"write caption positions document");QFile file(path);check(file.open(QIODevice::ReadOnly),"read caption positions document");const auto bytes=file.readAll();
+      check((bytes.indexOf("Position table")<bytes.indexOf("<w:tbl>"))==!overridden,"table caption default above and editable below");
+      check((bytes.indexOf("Position figure")<bytes.indexOf("<w:drawing>"))==overridden,"figure caption default below and editable above");
+      check(bytes.contains(QStringLiteral("C(1) – H(2) (Å)").toUtf8()),"DOCX preserves en dash with one space on each side");
+    }
+  }
   check(document.contains("w:val=\"subscript\"")&&document.contains("w:val=\"superscript\""),"existing caption markup retained");
   const QByteArray superscript="w:val=\"superscript\"/></w:rPr><w:t xml:space=\"preserve\">5</w:t>";
   const QByteArray subscriptCR="w:val=\"subscript\"/></w:rPr><w:t xml:space=\"preserve\">CR</w:t>";

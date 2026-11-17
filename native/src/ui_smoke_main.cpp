@@ -182,6 +182,37 @@ bool singleLineTableSmoke(){
 }
 
 struct Phase1Smoke {
+  static bool folderReferences(const QString& fixture){
+    QTemporaryDir folder;MainWindow window;bool ok=true;QStringList paths;
+    window.baseDirectory_->setText(folder.path());
+    for(const auto& sub:{"A","B"}){QDir().mkpath(folder.filePath(sub));for(int i=0;i<2;++i){const auto path=folder.filePath(QString("%1/structure%2.log").arg(sub).arg(i));QFile::copy(fixture,path);paths.append(path);}}
+    window.parsePaths(paths,false,false);if(!waitForImport(window))return false;
+    const double energies[]={-100,-99,-200,-198};
+    for(int i=0;i<paths.size();++i){auto result=std::make_shared<si::GaussianResult>(*window.parsed_.value(paths[i]));result->scfEnergy=energies[i];result->zeroPointKcal=1;result->thermalTotalKcal=2;result->entropy=3;window.parsed_[paths[i]]=result;}
+    window.energyBasis_->setCurrentIndex(window.energyBasis_->findData(static_cast<int>(si::EnergyBasis::Electronic)));
+    window.referenceMode_->setCurrentIndex(window.referenceMode_->findData("manual_numeric"));window.manualReference_->setText("-300");
+    window.addFolderStages();window.refreshDocumentModel();
+    ok&=check(window.reactionStages_.size()==2,"source subfolders create independent stages");
+    auto relative=[&](int stage){for(const auto& table:window.documentModel_.tables)if(table.section==si::DocumentSection::RelativeEnergy&&table.stageId==window.reactionStages_[stage].toObject()["id"].toString())return table;return si::DocumentTable{};};
+    auto first=relative(0),second=relative(1);
+    ok&=check(first.rows.size()==2&&second.rows.size()==2&&first.rows[0].last()=="0.00"&&second.rows[0].last()=="0.00"&&first.rows[1].last()==si::formatNumber(si::HartreeToKcal,2,0)&&second.rows[1].last()==si::formatNumber(2*si::HartreeToKcal,2,0),"folder references override global manual reference independently");
+    window.chooseStageScope(0);window.stageReference_->setCurrentIndex(window.stageReference_->findData(paths[1]));window.refreshDocumentModel();
+    first=relative(0);second=relative(1);
+    ok&=check(first.rows[1].last()=="0.00"&&second.rows[0].last()=="0.00","changing one stage reference preserves the other stage zero");
+    window.stageReferenceMode_->setCurrentIndex(window.stageReferenceMode_->findData("manual_numeric"));
+    window.stageManualReference_->setFocus();window.stageManualReference_->selectAll();QTest::keyClicks(window.stageManualReference_,"-101");window.refreshDocumentModel();first=relative(0);
+    ok&=check(first.rows[0].last()==si::formatNumber(si::HartreeToKcal,2,0)&&relative(1).rows[0].last()=="0.00","stage numeric reference uses selected energy basis without changing other stage");
+    window.addFolderStages();ok&=check(window.reactionStages_.size()==2,"repeated folder grouping preserves existing membership and references");
+    window.referenceMode_->setCurrentIndex(window.referenceMode_->findData("manual_relative_only"));window.refreshDocumentModel();
+    ok&=check(relative(0).rows.size()==2&&relative(1).rows.size()==2,"local stage references work when global automatic relative tables are disabled");
+    window.tableCaptionPosition_->setCurrentIndex(1);window.figureCaptionPosition_->setCurrentIndex(0);
+    const auto project=folder.filePath("folders.si_project.json");ok&=check(window.saveProjectToPath(project),"folder reference project saved");
+    ProjectState saved;QString error;ok&=check(ProjectStore::load(project,&saved,&error)&&saved.reactionStages==window.reactionStages_&&!saved.tableCaptionsAbove&&saved.figureCaptionsAbove,"independent references and caption positions survive portable project roundtrip");
+    MainWindow restored;restored.loadProjectPath(project);if(!waitForImport(restored))return false;
+    ok&=check(!restored.buildDocumentModel().tableCaptionsAbove&&restored.buildDocumentModel().figureCaptionsAbove,"caption overrides restored into document model");
+    return ok;
+  }
+
   static bool lowFrequencyDiagnostic(const QString& fixture){
     MainWindow window;window.parsePaths({fixture},false,false);if(!waitForImport(window))return false;
     auto original=window.parsed_.value(fixture);if(!original)return false;
@@ -825,14 +856,14 @@ struct Phase1Smoke {
     window.reactionStages_={QJsonObject{{"id","first"},{"name","First reaction"},{"files",QJsonArray{paths[0]}}},QJsonObject{{"id","peroxo"},{"name","Hydroperoxo mechanism"},{"files",QJsonArray{paths[1],paths[2]}}}};
     auto model=window.buildDocumentModel();const si::DocumentTable* peroxo=nullptr;
     for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.stageId=="peroxo")peroxo=&table;
-    ok&=check(peroxo&&peroxo->headers.value(1)=="Co-O (Å)"&&peroxo->headers.value(4)=="O-C (Å)"&&peroxo->rows[0].value(1)=="5.694"&&peroxo->rows[0].value(4)=="3.978","manual stage geometry uses stage elements instead of first reaction hydrogen labels");
-    ok&=check(peroxo&&peroxo->caption.startsWith("Hydroperoxo mechanism:")&&peroxo->headers.value(5)=="Co-O-O (°)"&&peroxo->headers.value(6)=="Co-O-O-C (°)","manual stage geometry identifies reaction and angle/dihedral atoms");
+    ok&=check(peroxo&&peroxo->headers.value(1)=="Co – O (Å)"&&peroxo->headers.value(4)=="O – C (Å)"&&peroxo->rows[0].value(1)=="5.694"&&peroxo->rows[0].value(4)=="3.978","manual stage geometry uses stage elements instead of first reaction hydrogen labels");
+    ok&=check(peroxo&&peroxo->caption.startsWith("Hydroperoxo mechanism:")&&peroxo->headers.value(5)=="Co – O – O (°)"&&peroxo->headers.value(6)=="Co – O – O – C (°)","manual stage geometry identifies reaction and angle/dihedral atoms");
     ok&=check(peroxo&&peroxo->rows[1].value(1)=="N/A"&&peroxo->rows[1].value(2)=="1.864","different elements are not reported under a misleading shared column");
     window.geometryAtomNumbers_->setChecked(true);model=window.buildDocumentModel();
-    for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.stageId=="peroxo")ok&=check(table.headers.value(1)=="Co(1)-O(5) (Å)"&&table.headers.value(4)=="O(3)-C(4) (Å)","stage geometry atom numbers remain attached to correct elements");
+    for(const auto& table:model.tables)if(table.section==si::DocumentSection::SelectedGeometry&&table.stageId=="peroxo")ok&=check(table.headers.value(1)=="Co(1) – O(5) (Å)"&&table.headers.value(4)=="O(3) – C(4) (Å)","stage geometry atom numbers remain attached to correct elements");
     window.reactionStages_={};model=window.buildDocumentModel();
     const auto* global=model.table(si::DocumentSection::SelectedGeometry);
-    ok&=check(global&&global->headers.value(1)=="Co(1)-H(5) (Å)"&&global->rows[1].value(1)=="N/A","unsplit mixed-element manual geometry also refuses mislabeled measurements");
+    ok&=check(global&&global->headers.value(1)=="Co(1) – H(5) (Å)"&&global->rows[1].value(1)=="N/A","unsplit mixed-element manual geometry also refuses mislabeled measurements");
     return ok;
   }
   static bool auditSavedStageGeometry(const QString& project){
@@ -881,7 +912,7 @@ struct Phase1Smoke {
     ok&=check(window.documentModel_.precisionOverride==0&&originalSpin&&
       originalSpin->rows[0].value(1)=="0.765"&&table&&table->rows[0].value(1)=="1.000",
       "energy, spin and geometry use per-quantity precision despite a legacy one-digit setting");
-    ok&=check(table&&table->rows.size()==2&&table->headers.contains("C(1)-H(4) (Å)")&&!table->caption.contains("RMSD")&&!table->caption.contains("Automatically suggested"),"empty geometry input produces automatic reaction distance table");
+    ok&=check(table&&table->rows.size()==2&&table->headers.contains("C(1) – H(4) (Å)")&&!table->caption.contains("RMSD")&&!table->caption.contains("Automatically suggested"),"empty geometry input produces automatic reaction distance table");
     ok&=check(window.geometryIndices_->toPlainText().isEmpty(),"automatic suggestions preserve empty input for recalculation");
     const auto spinWithNumbers=*originalSpin;
     const auto geometryWithNumbers=*table;
@@ -891,7 +922,7 @@ struct Phase1Smoke {
     ok&=check(spinWithoutNumbers&&spinWithoutNumbers->headers[1]=="C"&&spinWithoutNumbers->rows==spinWithNumbers.rows&&table&&table->headers==geometryWithNumbers.headers,"spin numbers toggle independently without changing values");
     window.geometryAtomNumbers_->setChecked(false);window.refreshDocumentModel();
     table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
-    ok&=check(table&&table->headers.contains("C-H (Å)")&&table->rows==geometryWithNumbers.rows,"automatic geometry can hide numbers without changing values");
+    ok&=check(table&&table->headers.contains("C – H (Å)")&&table->rows==geometryWithNumbers.rows,"automatic geometry can hide numbers without changing values");
     const auto settingsPath=folder.filePath("atom-numbers.json");QString settingsError;ProjectState settings;
     ok&=check(window.saveProjectToPath(settingsPath)&&ProjectStore::load(settingsPath,&settings,&settingsError)&&!settings.spinAtomNumbers&&!settings.geometryAtomNumbers,"hidden atom numbers survive project save");
     {MainWindow reopened;ok&=check(reopened.loadProjectPath(settingsPath)&&!reopened.spinAtomNumbers_->isChecked()&&!reopened.geometryAtomNumbers_->isChecked(),"atom number options restored in UI");waitForImport(reopened);}
@@ -905,7 +936,7 @@ struct Phase1Smoke {
     window.geometryIndices_->setPlainText("1 2 3");window.refreshDocumentModel();
     table=window.documentModel_.table(si::DocumentSection::SelectedGeometry);
     ok&=check(table&&table->headers.size()==2&&table->headers[1].contains("°")&&!table->caption.contains("RMSD"),"manual geometry overrides automatic suggestions");
-    ok&=check(table&&table->headers[1]=="C-C-O (°)","manual geometry also hides atom numbers");
+    ok&=check(table&&table->headers[1]=="C – C – O (°)","manual geometry also hides atom numbers");
     window.spinAtomNumbers_->setChecked(true);window.geometryAtomNumbers_->setChecked(true);
     window.geometryIndices_->clear();window.parsePaths({paths.front()});if(!waitUntil([&]{return !window.parsing_;}))return false;
     window.refreshDocumentModel();
@@ -1679,7 +1710,7 @@ int main(int argc,char** argv){
     const auto clean=measurement.renderMolecule(QSize(300,250));
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,175));
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,175));
-    ok&=check(measurement.selectedAtoms()==QVector<int>({1,2})&&measurement.selectedGeometryText()==QStringLiteral("1–2: 2.000 Å"),"picked atoms display their measured distance");
+    ok&=check(measurement.selectedAtoms()==QVector<int>({1,2})&&measurement.selectedGeometryText()==QStringLiteral("1 – 2: 2.000 Å"),"picked atoms display their measured distance");
     ok&=check(measurement.renderMolecule(QSize(300,250))==clean,"selection paths and measurements stay out of exported molecule images");
     QSignalSpy cleared(&measurement,&MoleculeViewWidget::geometrySelectionChanged);
     QTest::keyClick(&measurement,Qt::Key_Escape);
@@ -1689,9 +1720,29 @@ int main(int argc,char** argv){
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,280));
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,280));
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(355,70));
-    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1–2–3: 90.00°"),"three selected atoms show the angle at the middle atom");
+    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1 – 2 – 3: 90.00°"),"three selected atoms show the angle at the middle atom");
     QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,70));
-    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1–2–3–4: 153.43°"),"four selected atoms show the signed dihedral");
+    ok&=check(measurement.selectedGeometryText()==QStringLiteral("1 – 2 – 3 – 4: 153.43°"),"four selected atoms show the signed dihedral");
+    QTest::keyClick(&measurement,Qt::Key_5);
+    const auto pivot=measurement.cameraState();ok&=check(pivot.contains("center_x"),"selected atoms define persistent rotation pivot");
+    MoleculeViewWidget restoredCamera;restoredCamera.setCameraState(pivot);ok&=check(restoredCamera.cameraState()==pivot,"rotation pivot roundtrips with Figure camera state");
+    auto drag=[&](Qt::MouseButton button,Qt::KeyboardModifiers modifiers){
+      const QPoint from(240,170),to(290,195);QTest::mousePress(&measurement,button,modifiers,from);
+      QMouseEvent move(QEvent::MouseMove,QPointF(to),QPointF(measurement.mapToGlobal(to)),Qt::NoButton,button,modifiers);QApplication::sendEvent(&measurement,&move);QTest::mouseRelease(&measurement,button,modifiers,to);
+    };
+    const auto beforeRotate=measurement.cameraState();drag(Qt::RightButton,Qt::NoModifier);
+    const auto afterRotate=measurement.cameraState();
+    ok&=check(beforeRotate.value("yaw")!=afterRotate.value("yaw")&&beforeRotate.value("pan_x")==afterRotate.value("pan_x"),"Chemcraft right drag rotates without translating");
+    const auto image=measurement.renderMolecule(QSize(300,250));measurement.setCameraState(afterRotate);
+    ok&=check(measurement.renderMolecule(QSize(300,250))==image,"trackball orientation matches serialized legacy Figure camera");
+    drag(Qt::RightButton,Qt::ControlModifier);const auto afterPan=measurement.cameraState();
+    ok&=check(afterPan.value("pan_x")!=afterRotate.value("pan_x")&&afterPan.value("yaw")==afterRotate.value("yaw"),"Ctrl right drag pans without rotating");
+    drag(Qt::RightButton,Qt::ControlModifier|Qt::ShiftModifier);ok&=check(measurement.cameraState().value("zoom")!=afterPan.value("zoom"),"Ctrl Shift right drag zooms");
+    QTest::keyClick(&measurement,Qt::Key_C,Qt::ControlModifier);ok&=check(QApplication::clipboard()->text()==measurement.selectedGeometryText(),"viewer copies selected measurement");
+    QTest::keyClick(&measurement,Qt::Key_Space);ok&=check(measurement.cameraState().value("zoom").toDouble()>0&&!measurement.cameraState().contains("center_x"),"Space fits whole molecule and clears custom pivot");
+    QTest::mouseClick(&measurement,Qt::RightButton);ok&=check(measurement.selectedAtoms().isEmpty(),"right click clears selection without moving camera");
+    measurement.setCameraState({{"yaw",0},{"pitch",0},{"roll",0},{"zoom",1}});
+    QTest::mouseClick(&measurement,Qt::LeftButton,Qt::NoModifier,QPoint(145,70));
     measurement.setHydrogenVisibility(true);
     ok&=check(measurement.selectedAtoms().isEmpty(),"hiding a selected hydrogen clears its measurement path");
   }
@@ -1708,6 +1759,7 @@ int main(int argc,char** argv){
   ok&=Phase1Smoke::labelledFileImports(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::orderedReactionInputs(QString::fromLocal8Bit(argv[1]));
   ok&=Phase1Smoke::numberedReactionLabels(QString::fromLocal8Bit(argv[1]));
+  ok&=Phase1Smoke::folderReferences(QFileInfo(QString::fromLocal8Bit(argv[1])).absoluteFilePath());
   ok&=Phase1Smoke::referenceDrafts();
   if(qEnvironmentVariableIsSet("SI_REAL_REACTION_DIR"))ok&=Phase1Smoke::realReactionInputs(qEnvironmentVariable("SI_REAL_REACTION_DIR"));
   ok&=Phase1Smoke::namedAndTsImports(QString::fromLocal8Bit(argv[1]));

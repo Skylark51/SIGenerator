@@ -8,6 +8,10 @@
 #include <QLineF>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QApplication>
+#include <QClipboard>
+#include <QToolButton>
+#include <QMenu>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -30,7 +34,20 @@ MoleculeViewWidget::MoleculeViewWidget(QWidget* parent) : QOpenGLWidget(parent) 
   setObjectName(QStringLiteral("moleculeView"));
   setMinimumSize(320, 260);
   setFocusPolicy(Qt::StrongFocus);
-  setToolTip(tr("왼쪽 드래그: 회전, 오른쪽 드래그: 이동, 휠: 확대/축소 · 선택 구조 모드: 원자 2/3/4개로 측정, Esc로 선택 해제"));
+  auto* controls=new QToolButton(this);controls->setObjectName("moleculeViewControls");controls->setText(tr("보기 · 측정 ▾"));controls->setPopupMode(QToolButton::InstantPopup);
+  auto* menu=new QMenu(controls);controls->setMenu(menu);
+  menu->addAction(tr("화면 맞춤 (Space)"),this,&MoleculeViewWidget::fitView);
+  menu->addAction(tr("선택 원자 중심 회전 (5)"),this,&MoleculeViewWidget::centerOnSelection);
+  menu->addAction(tr("처음 보기 (Home)"),this,&MoleculeViewWidget::resetView);
+  menu->addSeparator();
+  for(int plane=0;plane<3;++plane)menu->addAction(QStringList{tr("XY 정면 (1)"),tr("YZ 측면 (2)"),tr("XZ 평면 (3)")}[plane],this,[this,plane]{setStandardView(plane);});
+  menu->addSeparator();
+  menu->addAction(tr("거리·각도·이면각 측정"),this,[this]{setInteractionMode(InteractionMode::Geometry);});
+  menu->addAction(tr("측정값 복사 (Ctrl+C)"),this,[this]{QApplication::clipboard()->setText(selectedGeometryText());});
+  auto* indices=menu->addAction(tr("원자 번호"));indices->setCheckable(true);indices->setChecked(showIndices_);connect(indices,&QAction::toggled,this,&MoleculeViewWidget::setAtomIndicesVisible);
+  menu->addAction(tr("선택 해제 (Esc)"),this,&MoleculeViewWidget::clearSelection);
+  controls->adjustSize();
+  setToolTip(tr("왼쪽/오른쪽 드래그: 회전 · Ctrl+오른쪽/가운데/Shift 드래그: 이동 · Ctrl+Shift+오른쪽 드래그/휠: 확대 · Alt 드래그: 화면축 회전 · Space: 화면 맞춤 · 5: 선택 중심 · Esc/오른쪽 클릭: 선택 해제 · Ctrl+C: 측정 복사"));
 }
 
 void MoleculeViewWidget::setMolecule(const std::vector<si::Atom>& atoms, const std::vector<si::SpinDensity>& spins, const std::string& spinBasisLevel, bool spinFallback) {
@@ -49,7 +66,27 @@ bool MoleculeViewWidget::atomVisible(int atomIndex) const {
   if(atomIndex<1 || static_cast<size_t>(atomIndex)>atoms_.size())return false;
   return !hideHydrogens_ || atoms_[static_cast<size_t>(atomIndex-1)].atomicNumber!=1 || atomIndex==retainedHydrogenIndex_;
 }
-void MoleculeViewWidget::resetView() { yaw_=-25.0; pitch_=20.0; roll_=0.0; zoom_=1.0; pan_={}; update(); emit cameraChanged(); }
+void MoleculeViewWidget::resetView() { setCameraState({}); }
+void MoleculeViewWidget::fitView(){
+  zoom_=1;pan_={};rotationCenter_.reset();
+  const auto frame=captureRect();const auto projected=projectedAtoms(frame.size());QRectF bounds;bool first=true;
+  for(const auto& atom:projected)if(atomVisible(atom.index)){
+    const QRectF sphere(atom.point-QPointF(atom.radius,atom.radius),QSizeF(2*atom.radius,2*atom.radius));bounds=first?sphere:bounds.united(sphere);first=false;
+  }
+  if(!first&&bounds.width()>0&&bounds.height()>0){
+    zoom_=std::clamp(std::min(frame.width()*0.8/bounds.width(),frame.height()*0.8/bounds.height()),0.15,8.0);
+    pan_=(QPointF(frame.width()/2.0,frame.height()/2.0)-bounds.center())*zoom_/std::max(1,std::min(frame.width(),frame.height()));
+  }
+  update();emit cameraChanged();
+}
+void MoleculeViewWidget::centerOnSelection(){
+  if(selectedAtoms_.isEmpty()){fitView();return;}
+  QVector3D center;for(int id:selectedAtoms_){const auto& xyz=atoms_[id-1].xyz;center+=QVector3D(float(xyz[0]),float(xyz[1]),float(xyz[2]));}
+  rotationCenter_=center/float(selectedAtoms_.size());pan_={};update();emit cameraChanged();
+}
+void MoleculeViewWidget::setStandardView(int plane){
+  auto state=cameraState();state["yaw"]=plane==1?90:0;state["pitch"]=plane==2?90:0;state["roll"]=0;setCameraState(state);
+}
 void MoleculeViewWidget::clearSelection() { selectedAtoms_.clear(); emit geometrySelectionChanged(selectedAtoms_); update(); }
 QString MoleculeViewWidget::selectedGeometryText() const {
   if(mode_!=InteractionMode::Geometry||selectedAtoms_.size()<2)return {};
@@ -58,11 +95,11 @@ QString MoleculeViewWidget::selectedGeometryText() const {
   if(selectedAtoms_.size()==2)value=si::distance(atoms_,selectedAtoms_[0],selectedAtoms_[1]);
   else if(selectedAtoms_.size()==3)value=si::angle(atoms_,selectedAtoms_[0],selectedAtoms_[1],selectedAtoms_[2]);
   else if(selectedAtoms_.size()==4)value=si::dihedral(atoms_,selectedAtoms_[0],selectedAtoms_[1],selectedAtoms_[2],selectedAtoms_[3]);
-  return ids.join("–")+": "+(value?QString::number(*value,'f',selectedAtoms_.size()==2?3:2):QStringLiteral("N/A"))+
+  return ids.join(" – ")+": "+(value?QString::number(*value,'f',selectedAtoms_.size()==2?3:2):QStringLiteral("N/A"))+
     (selectedAtoms_.size()==2?QStringLiteral(" Å"):QStringLiteral("°"));
 }
 void MoleculeViewWidget::initializeGL() {}
-void MoleculeViewWidget::resizeGL(int, int) {}
+void MoleculeViewWidget::resizeGL(int width, int) {if(auto* controls=findChild<QToolButton*>("moleculeViewControls"))controls->move(std::max(0,width-controls->width()-8),6);}
 
 QVector<MoleculeViewWidget::ProjectedAtom> MoleculeViewWidget::projectedAtoms(QSize size) const {
   const int width=size.width(),height=size.height();
@@ -73,15 +110,18 @@ QVector<MoleculeViewWidget::ProjectedAtom> MoleculeViewWidget::projectedAtoms(QS
     ++visibleCount;
   }
   if(visibleCount>0)for(double& v:center)v/=static_cast<double>(visibleCount);
-  const double cy=std::cos(yaw_*std::numbers::pi/180.0), sy=std::sin(yaw_*std::numbers::pi/180.0), cp=std::cos(pitch_*std::numbers::pi/180.0), sp=std::sin(pitch_*std::numbers::pi/180.0);
+  if(rotationCenter_)center={rotationCenter_->x(),rotationCenter_->y(),rotationCenter_->z()};
   double extent=1.0;for(size_t index=0;index<atoms_.size();++index)if(atomVisible(static_cast<int>(index)+1)){
     const auto& atom=atoms_[index];
     for(int i=0;i<3;++i)extent=std::max(extent,std::abs(atom.xyz[i]-center[i])+atomRadius(atom));
   }
-  const double cr=std::cos(roll_*std::numbers::pi/180.0),sr=std::sin(roll_*std::numbers::pi/180.0);
   const double scale=std::min(width,height)*0.38/extent*zoom_;
   output.reserve(static_cast<qsizetype>(atoms_.size()));
-  for(size_t i=0;i<atoms_.size();++i){const auto& a=atoms_[i];const double x=a.xyz[0]-center[0],y=a.xyz[1]-center[1],z=a.xyz[2]-center[2];const double x1=cy*x+sy*z,z1=-sy*x+cy*z;const double y1=cp*y-sp*z1,z2=sp*y+cp*z1;const double perspective=renderStyle_.value("perspective").toBool()?1.0/(1.0+z2/(extent*8.0)):1.0;output.append({{width/2.0+pan_.x()*std::min(width,height)+(cr*x1-sr*y1)*scale*perspective,height/2.0+pan_.y()*std::min(width,height)-(sr*x1+cr*y1)*scale*perspective},z2,scale*perspective*atomRadius(a),static_cast<int>(i)+1});}
+  for(size_t i=0;i<atoms_.size();++i){
+    const auto& a=atoms_[i];const auto rotated=orientation_.rotatedVector(QVector3D(float(a.xyz[0]-center[0]),float(a.xyz[1]-center[1]),float(a.xyz[2]-center[2])));
+    const double perspective=renderStyle_.value("perspective").toBool()?1.0/(1.0+rotated.z()/(extent*8.0)):1.0;
+    output.append({{width/2.0+pan_.x()*std::min(width,height)+rotated.x()*scale*perspective,height/2.0+pan_.y()*std::min(width,height)-rotated.y()*scale*perspective},rotated.z(),scale*perspective*atomRadius(a),static_cast<int>(i)+1});
+  }
   return output;
 }
 
@@ -111,11 +151,14 @@ void MoleculeViewWidget::paintGL() {
 }
 
 QJsonObject MoleculeViewWidget::cameraState() const {
-  return {{"yaw",yaw_},{"pitch",pitch_},{"roll",roll_},{"zoom",zoom_},{"pan_x",pan_.x()},{"pan_y",pan_.y()}};
+  QJsonObject state{{"yaw",yaw_},{"pitch",pitch_},{"roll",roll_},{"zoom",zoom_},{"pan_x",pan_.x()},{"pan_y",pan_.y()}};
+  if(rotationCenter_){state["center_x"]=rotationCenter_->x();state["center_y"]=rotationCenter_->y();state["center_z"]=rotationCenter_->z();}return state;
 }
 void MoleculeViewWidget::setCameraState(const QJsonObject& state) {
   auto value=[&](const char* key,double fallback){const double n=state.value(key).toDouble(fallback);return std::isfinite(n)?n:fallback;};
   yaw_=value("yaw",-25);pitch_=value("pitch",20);roll_=value("roll",0);
+  orientation_=QQuaternion::fromAxisAndAngle(0,0,1,float(roll_))*QQuaternion::fromAxisAndAngle(1,0,0,float(pitch_))*QQuaternion::fromAxisAndAngle(0,1,0,float(yaw_));
+  rotationCenter_.reset();if(state.contains("center_x")&&state.contains("center_y")&&state.contains("center_z"))rotationCenter_=QVector3D(float(value("center_x",0)),float(value("center_y",0)),float(value("center_z",0)));
   zoom_=std::clamp(value("zoom",1),0.15,8.0);pan_={value("pan_x",0),value("pan_y",0)};update();emit cameraChanged();
 }
 QImage MoleculeViewWidget::renderMolecule(QSize size) const {
@@ -188,8 +231,58 @@ void MoleculeViewWidget::paintScene(QPainter& painter,QSize size,bool clean) con
 void MoleculeViewWidget::rebuildBonds(){bonds_.clear();for(size_t i=0;i<atoms_.size();++i)for(size_t j=i+1;j<atoms_.size();++j){const auto&a=atoms_[i],&b=atoms_[j];const double dx=a.xyz[0]-b.xyz[0],dy=a.xyz[1]-b.xyz[1],dz=a.xyz[2]-b.xyz[2],distance=std::sqrt(dx*dx+dy*dy+dz*dz);const double cutoff=1.22*(covalentRadius(a.atomicNumber)+covalentRadius(b.atomicNumber));if(distance>0.2&&distance<=cutoff)bonds_.append({static_cast<int>(i),static_cast<int>(j)});}}
 int MoleculeViewWidget::pickAtom(const QPointF& position) const {int picked=-1;double best=1e9,bestDepth=1e9;for(const auto& item:projectedAtoms()){if(!atomVisible(item.index))continue;const double d=QLineF(position,item.point).length();if(d<=item.radius+7.0&&(item.depth<bestDepth||(item.depth==bestDepth&&d<best))){picked=item.index;best=d;bestDepth=item.depth;}}return picked;}
 void MoleculeViewWidget::handleClick(const QPointF& position){const int picked=pickAtom(position);if(picked<1)return;const auto& atom=atoms_[static_cast<size_t>(picked-1)];if(mode_==InteractionMode::Geometry){if(selectedAtoms_.contains(picked))selectedAtoms_.removeAll(picked);else{if(selectedAtoms_.size()>=4)selectedAtoms_.clear();selectedAtoms_.append(picked);}emit geometrySelectionChanged(selectedAtoms_);}else{selectedAtoms_={picked};double spin=0.0;bool found=false;for(const auto& value:spins_)if(value.atomIndex==picked){spin=value.spin;found=true;break;}emit atomPicked(picked,QString::fromStdString(atom.symbol),spin,found);}update();}
-void MoleculeViewWidget::mousePressEvent(QMouseEvent* event){setFocus();lastMouse_=event->pos();dragging_=true;moved_=false;dragButton_=event->button();event->accept();}
-void MoleculeViewWidget::mouseMoveEvent(QMouseEvent* event){if(!dragging_)return;const QPoint delta=event->pos()-lastMouse_;if(delta.manhattanLength()>2)moved_=true;if(dragButton_==Qt::RightButton||event->modifiers().testFlag(Qt::ShiftModifier))pan_+=QPointF(delta)/std::max(1,std::min(captureRect().width(),captureRect().height()));else if(event->modifiers().testFlag(Qt::AltModifier)){roll_+=delta.x()*0.6;}else{yaw_+=delta.x()*0.6;pitch_+=delta.y()*0.6;}lastMouse_=event->pos();update();emit cameraChanged();}
-void MoleculeViewWidget::mouseReleaseEvent(QMouseEvent* event){if(dragging_&&!moved_&&event->button()==Qt::LeftButton)handleClick(event->position());dragging_=false;dragButton_=Qt::NoButton;event->accept();}
-void MoleculeViewWidget::wheelEvent(QWheelEvent* event){zoom_=std::clamp(zoom_*std::pow(1.0015,event->angleDelta().y()),0.15,8.0);update();emit cameraChanged();event->accept();}
-void MoleculeViewWidget::keyPressEvent(QKeyEvent* event){if(event->key()==Qt::Key_Escape){clearSelection();event->accept();return;}QOpenGLWidget::keyPressEvent(event);}
+void MoleculeViewWidget::mousePressEvent(QMouseEvent* event){
+  setFocus();pressMouse_=lastMouse_=event->pos();dragging_=true;moved_=false;dragButton_=event->button();event->accept();
+}
+void MoleculeViewWidget::mouseMoveEvent(QMouseEvent* event){
+  if(!dragging_)return;
+  if(!moved_&&(event->pos()-pressMouse_).manhattanLength()<QApplication::startDragDistance())return;
+  moved_=true;const QPoint delta=event->pos()-lastMouse_;
+  const double span=std::max(1,std::min(captureRect().width(),captureRect().height()));
+  const bool ctrl=event->modifiers().testFlag(Qt::ControlModifier),shift=event->modifiers().testFlag(Qt::ShiftModifier);
+  if(dragButton_==Qt::RightButton&&ctrl&&shift)zoom_=std::clamp(zoom_*std::exp(-delta.y()*0.01),0.15,8.0);
+  else if(dragButton_==Qt::MiddleButton||(dragButton_==Qt::RightButton&&ctrl)||shift)pan_+=QPointF(delta)/span;
+  else{
+    QQuaternion change;
+    if(event->modifiers().testFlag(Qt::AltModifier))change=QQuaternion::fromAxisAndAngle(0,0,1,float(delta.x()*0.6));
+    else{
+      const auto frame=captureRect();
+      auto trackball=[&](QPoint point){
+        double x=2.0*(point.x()-frame.center().x())/span,y=-2.0*(point.y()-frame.center().y())/span;
+        const double r=x*x+y*y;return QVector3D(float(x),float(y),float(r<=0.5?std::sqrt(1-r):0.5/std::sqrt(r))).normalized();
+      };
+      change=QQuaternion::rotationTo(trackball(lastMouse_),trackball(event->pos()));
+    }
+    orientation_=(change*orientation_).normalized();
+    // Preserve the existing Euler camera format used by saved Figure views.
+    const auto m=orientation_.toRotationMatrix();
+    pitch_=std::asin(std::clamp(double(m(2,1)),-1.0,1.0))*180/std::numbers::pi;
+    yaw_=std::atan2(-m(2,0),m(2,2))*180/std::numbers::pi;
+    roll_=std::atan2(-m(0,1),m(1,1))*180/std::numbers::pi;
+    orientation_=QQuaternion::fromAxisAndAngle(0,0,1,float(roll_))*QQuaternion::fromAxisAndAngle(1,0,0,float(pitch_))*QQuaternion::fromAxisAndAngle(0,1,0,float(yaw_));
+  }
+  lastMouse_=event->pos();update();emit cameraChanged();event->accept();
+}
+void MoleculeViewWidget::mouseReleaseEvent(QMouseEvent* event){
+  if(dragging_&&!moved_){if(event->button()==Qt::LeftButton)handleClick(event->position());else if(event->button()==Qt::RightButton)clearSelection();}
+  dragging_=false;dragButton_=Qt::NoButton;event->accept();
+}
+void MoleculeViewWidget::mouseDoubleClickEvent(QMouseEvent* event){if(pickAtom(event->position())<1)fitView();event->accept();}
+void MoleculeViewWidget::wheelEvent(QWheelEvent* event){
+  const double amount=event->pixelDelta().isNull()?event->angleDelta().y():event->pixelDelta().y()*4.0;
+  zoom_=std::clamp(zoom_*std::exp(amount*0.0015),0.15,8.0);update();emit cameraChanged();event->accept();
+}
+void MoleculeViewWidget::keyPressEvent(QKeyEvent* event){
+  if(event->matches(QKeySequence::Copy)){QApplication::clipboard()->setText(selectedGeometryText());event->accept();return;}
+  switch(event->key()){
+    case Qt::Key_Escape:clearSelection();break;
+    case Qt::Key_Space:case Qt::Key_F:fitView();break;
+    case Qt::Key_5:centerOnSelection();break;
+    case Qt::Key_Home:resetView();break;
+    case Qt::Key_1:setStandardView(0);break;
+    case Qt::Key_2:setStandardView(1);break;
+    case Qt::Key_3:setStandardView(2);break;
+    default:QOpenGLWidget::keyPressEvent(event);return;
+  }
+  event->accept();
+}
