@@ -1,5 +1,21 @@
 # SI Generator Native
 
+## 바탕화면 단일 EXE
+
+`SI generator.exe` 하나를 원하는 폴더에 복사해 실행할 수 있습니다. 이름과 앱 기능은 그대로이며 Python, Qt 개발 도구, 외장하드, 관리자 권한, 다운로드 없이 실행합니다.
+전체 Qt DLL·플러그인과 Visual C++ 런타임을 LZX 압축해 EXE 안에 포함합니다. 첫 실행 때 `%LOCALAPPDATA%\SI-Generator\runtime\<버전 해시>`에 풀고, 이후 실행에서는 캐시를 재사용합니다. 매 실행 시 SHA-256으로 검사하며 손상되거나 예상하지 못한 DLL이 있으면 내장 원본으로 새 캐시를 만듭니다. EXE 옆에는 DLL이나 폴더를 만들지 않습니다.
+기존 프로젝트 목록·테마·설정은 같은 앱 설정을 사용합니다. 프로젝트와 Gaussian 원본은 기존 위치에 유지하며, 캐시에는 프로그램 런타임만 저장합니다.
+
+GitHub Actions의 `SI-Generator-Single-File-Windows-x64` 산출물에 단일 EXE가 있습니다. 같은 빌드의 ZIP 포터블과 함께 설치하려면 다음 명령을 사용합니다.
+
+```powershell
+.\native\install-portable.ps1 -PackagePath "C:\실제경로\SI-Generator-Windows-x64.zip" -SourceCommit "병합된 40자리 커밋 SHA" -SingleFilePath "C:\실제경로\SI generator.exe"
+```
+
+바탕화면의 기존 SI Generator/SIGenerator 바로가기는 백업 후 `SI generator.exe`로 교체됩니다. `C:\SI-Generator`의 전체 포터블도 계속 갱신합니다.
+`native/build-release.ps1`은 ZIP과 단일 EXE를 함께 생성합니다. 이미 배포한 전체 런타임에서 단일 EXE만 만들려면 `native/build-single-file.ps1 -RuntimeDirectory <런타임 폴더>`를 실행합니다.
+`SI generator.exe --single-file-verify`는 캐시 준비·무결성 검사만 수행하고 종료합니다. 진단용 `SI_GENERATOR_CACHE_ROOT` 환경 변수로 캐시 위치를 지정할 수 있습니다. CI는 동시 첫 실행, 캐시 재사용·손상 복구, 한글 경로, 개발 도구 없는 PATH, 원본 런타임과의 일치, 프로젝트 관리 창의 정상 시작과 종료를 검사합니다.
+
 ## 소규모 계산 검토·분자 측정 개선 (2026-11-14)
 
 - Gaussian의 일반/고정밀 진동수 블록을 중복 집계하지 않고 마지막 harmonic 분석을 사용합니다. 고정밀 블록만 있는 출력과 Fortran D 지수도 지원합니다.

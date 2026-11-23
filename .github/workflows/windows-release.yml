@@ -47,10 +47,16 @@ jobs:
       - name: Package Windows application
         shell: pwsh
         run: |
-          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --dir dist dist/SIGenerator.exe
-          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
-          Copy-Item README.md dist/README.md
+          ./native/package-runtime.ps1 -QtRoot $env:QT_ROOT_DIR -RuntimeDirectory dist
           Compress-Archive -Path dist/* -DestinationPath SI-Generator-Windows-x64.zip -Force
+
+      - name: Build compressed single-file application
+        shell: pwsh
+        run: ./native/build-single-file.ps1
+
+      - name: Verify single-file cold start, cache, repair and isolated launch
+        shell: pwsh
+        run: ./native/verify-single-file.ps1 -ExecutablePath './SI generator.exe' -RuntimeDirectory dist -ManifestPath build-single-file/payload/runtime.manifest
 
       - name: Verify in-place Windows update
         shell: pwsh
@@ -135,10 +141,17 @@ jobs:
           path: SI-Generator-Windows-x64.zip
           if-no-files-found: error
 
+      - name: Upload single-file application
+        uses: actions/upload-artifact@v4
+        with:
+          name: SI-Generator-Single-File-Windows-x64
+          path: SI generator.exe
+          if-no-files-found: error
+
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" SI-Generator-Windows-x64.zip --title "SI Generator ${{ github.ref_name }}" --generate-notes
+          gh release create "${{ github.ref_name }}" SI-Generator-Windows-x64.zip 'SI generator.exe' --title "SI Generator ${{ github.ref_name }}" --generate-notes
