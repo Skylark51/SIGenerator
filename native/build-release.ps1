@@ -23,9 +23,8 @@ if (-not $SkipTests) {
     ctest --test-dir build -C Release --output-on-failure
     if ($LASTEXITCODE -ne 0) { throw "Regression tests failed" }
 }
-& $qtDeploy --release --no-translations --dir $dist (Join-Path $dist "SIGenerator.exe")
-if ($LASTEXITCODE -ne 0) { throw "Qt deployment failed" }
-Copy-Item (Join-Path $repoRoot "README.md") (Join-Path $dist "README.md") -Force
+& (Join-Path $PSScriptRoot 'package-runtime.ps1') -QtRoot $QtRoot -RuntimeDirectory $dist
+& (Join-Path $PSScriptRoot 'build-single-file.ps1') -RuntimeDirectory $dist
 
 $zip = Join-Path $repoRoot "SI-Generator-Windows-x64.zip"
 if (Test-Path $zip) { Remove-Item -LiteralPath $zip -Force }
